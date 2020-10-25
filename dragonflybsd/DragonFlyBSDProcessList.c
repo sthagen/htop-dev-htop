@@ -2,7 +2,7 @@
 htop - DragonFlyBSDProcessList.c
 (C) 2014 Hisham H. Muhammad
 (C) 2017 Diederik de Groot
-Released under the GNU GPL, see the COPYING file
+Released under the GNU GPLv2, see the COPYING file
 in the source distribution for its full text.
 */
 
@@ -21,8 +21,9 @@ in the source distribution for its full text.
 #include <string.h>
 #include <sys/param.h>
 
+#include "CRT.h"
+#include "Macros.h"
 
-#define _UNUSED_ __attribute__((unused))
 
 static int MIB_hw_physmem[2];
 static int MIB_vm_stats_vm_v_page_count[4];
@@ -41,12 +42,12 @@ static int MIB_kern_cp_time[2];
 static int MIB_kern_cp_times[2];
 static int kernelFScale;
 
-ProcessList* ProcessList_new(UsersTable* usersTable, Hashtable* pidWhiteList, uid_t userId) {
+ProcessList* ProcessList_new(UsersTable* usersTable, Hashtable* pidMatchList, uid_t userId) {
    size_t len;
    char errbuf[_POSIX2_LINE_MAX];
    DragonFlyBSDProcessList* dfpl = xCalloc(1, sizeof(DragonFlyBSDProcessList));
    ProcessList* pl = (ProcessList*) dfpl;
-   ProcessList_init(pl, Class(DragonFlyBSDProcess), usersTable, pidWhiteList, userId);
+   ProcessList_init(pl, Class(DragonFlyBSDProcess), usersTable, pidMatchList, userId);
 
    // physical memory in system: hw.physmem
    // physical page size: hw.pagesize
@@ -55,8 +56,8 @@ ProcessList* ProcessList_new(UsersTable* usersTable, Hashtable* pidWhiteList, ui
 
    len = sizeof(pageSize);
    if (sysctlbyname("vm.stats.vm.v_page_size", &pageSize, &len, NULL, 0) == -1) {
-      pageSize = PAGE_SIZE;
-      pageSizeKb = PAGE_SIZE_KB;
+      pageSize = CRT_pageSize;
+      pageSizeKb = CRT_pageSizeKB;
    } else {
       pageSizeKb = pageSize / ONE_K;
    }
@@ -97,7 +98,7 @@ ProcessList* ProcessList_new(UsersTable* usersTable, Hashtable* pidWhiteList, ui
       sysctl(MIB_kern_cp_times, 2, dfpl->cp_times_o, &len, NULL, 0);
    }
 
-   pl->cpuCount = MAX(cpus, 1);
+   pl->cpuCount = MAXIMUM(cpus, 1);
 
    if (cpus == 1 ) {
      dfpl->cpus = xRealloc(dfpl->cpus, sizeof(CPUData));
@@ -255,7 +256,7 @@ static inline void DragonFlyBSDProcessList_scanMemoryInfo(ProcessList* pl) {
    //pl->freeMem *= pageSizeKb;
 
    struct kvm_swap swap[16];
-   int nswap = kvm_getswapinfo(dfpl->kd, swap, sizeof(swap)/sizeof(swap[0]), 0);
+   int nswap = kvm_getswapinfo(dfpl->kd, swap, ARRAYSIZE(swap), 0);
    pl->totalSwap = 0;
    pl->usedSwap = 0;
    for (int i = 0; i < nswap; i++) {
@@ -359,7 +360,7 @@ char* DragonFlyBSDProcessList_readJailName(DragonFlyBSDProcessList* dfpl, int ja
    return jname;
 }
 
-void ProcessList_goThroughEntries(ProcessList* this) {
+void ProcessList_goThroughEntries(ProcessList* this, bool pauseProcessUpdate) {
    DragonFlyBSDProcessList* dfpl = (DragonFlyBSDProcessList*) this;
    Settings* settings = this->settings;
    bool hideKernelThreads = settings->hideKernelThreads;
@@ -369,6 +370,10 @@ void ProcessList_goThroughEntries(ProcessList* this) {
    DragonFlyBSDProcessList_scanCPUTime(this);
    DragonFlyBSDProcessList_scanJails(dfpl);
 
+   // in pause mode only gather global data for meters (CPU/memory/...)
+   if (pauseProcessUpdate)
+      return;
+
    int count = 0;
 
    // TODO Kernel Threads seem to be skipped, need to figure out the correct flag
@@ -377,7 +382,7 @@ void ProcessList_goThroughEntries(ProcessList* this) {
    for (int i = 0; i < count; i++) {
       struct kinfo_proc* kproc = &kprocs[i];
       bool preExisting = false;
-      bool _UNUSED_ isIdleProcess = false;
+      bool ATTR_UNUSED isIdleProcess = false;
 
       // note: dragonflybsd kernel processes all have the same pid, so we misuse the kernel thread address to give them a unique identifier
       Process* proc = ProcessList_getProcess(this, kproc->kp_ktaddr ? (pid_t)kproc->kp_ktaddr : kproc->kp_pid, &preExisting, (Process_New) DragonFlyBSDProcess_new);
@@ -432,12 +437,12 @@ void ProcessList_goThroughEntries(ProcessList* this) {
 
       proc->m_size = kproc->kp_vm_map_size / 1024 / pageSizeKb;
       proc->m_resident = kproc->kp_vm_rssize;
-      proc->percent_mem = (proc->m_resident * PAGE_SIZE_KB) / (double)(this->totalMem) * 100.0;
+      proc->percent_mem = (proc->m_resident * CRT_pageSizeKB) / (double)(this->totalMem) * 100.0;
       proc->nlwp = kproc->kp_nthreads;		// number of lwp thread
       proc->time = (kproc->kp_swtime + 5000) / 10000;
 
       proc->percent_cpu = 100.0 * ((double)kproc->kp_lwp.kl_pctcpu / (double)kernelFScale);
-      proc->percent_mem = 100.0 * (proc->m_resident * PAGE_SIZE_KB) / (double)(this->totalMem);
+      proc->percent_mem = 100.0 * (proc->m_resident * pageSizeKb) / (double)(this->totalMem);
 
       if (proc->percent_cpu > 0.1) {
          // system idle process should own all CPU time left regardless of CPU count

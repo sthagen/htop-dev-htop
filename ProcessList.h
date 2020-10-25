@@ -3,20 +3,28 @@
 /*
 htop - ProcessList.h
 (C) 2004,2005 Hisham H. Muhammad
-Released under the GNU GPL, see the COPYING file
+Released under the GNU GPLv2, see the COPYING file
 in the source distribution for its full text.
 */
 
-#include "Vector.h"
+#include "config.h" // IWYU pragma: keep
+
+#include <stdbool.h>
+#include <sys/types.h>
+
 #include "Hashtable.h"
-#include "UsersTable.h"
+#include "Object.h"
 #include "Panel.h"
 #include "Process.h"
+#include "RichString.h"
 #include "Settings.h"
+#include "UsersTable.h"
+#include "Vector.h"
 
 #ifdef HAVE_LIBHWLOC
 #include <hwloc.h>
 #endif
+
 
 #ifndef MAX_NAME
 #define MAX_NAME 128
@@ -38,7 +46,7 @@ typedef struct ProcessList_ {
    int following;
    uid_t userId;
    const char* incFilter;
-   Hashtable* pidWhiteList;
+   Hashtable* pidMatchList;
 
    #ifdef HAVE_LIBHWLOC
    hwloc_topology_t topology;
@@ -64,12 +72,12 @@ typedef struct ProcessList_ {
 
 } ProcessList;
 
-ProcessList* ProcessList_new(UsersTable* ut, Hashtable* pidWhiteList, uid_t userId);
+ProcessList* ProcessList_new(UsersTable* ut, Hashtable* pidMatchList, uid_t userId);
 void ProcessList_delete(ProcessList* pl);
-void ProcessList_goThroughEntries(ProcessList* pl);
+void ProcessList_goThroughEntries(ProcessList* pl, bool pauseProcessUpdate);
 
 
-ProcessList* ProcessList_init(ProcessList* this, ObjectClass* klass, UsersTable* usersTable, Hashtable* pidWhiteList, uid_t userId);
+ProcessList* ProcessList_init(ProcessList* this, const ObjectClass* klass, UsersTable* usersTable, Hashtable* pidMatchList, uid_t userId);
 
 void ProcessList_done(ProcessList* this);
 
@@ -95,6 +103,6 @@ void ProcessList_rebuildPanel(ProcessList* this);
 
 Process* ProcessList_getProcess(ProcessList* this, pid_t pid, bool* preExisting, Process_New constructor);
 
-void ProcessList_scan(ProcessList* this);
+void ProcessList_scan(ProcessList* this, bool pauseProcessUpdate);
 
 #endif

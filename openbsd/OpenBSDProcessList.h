@@ -4,7 +4,7 @@
 htop - OpenBSDProcessList.h
 (C) 2014 Hisham H. Muhammad
 (C) 2015 Michael McConville
-Released under the GNU GPL, see the COPYING file
+Released under the GNU GPLv2, see the COPYING file
 in the source distribution for its full text.
 */
 
@@ -38,27 +38,13 @@ typedef struct OpenBSDProcessList_ {
 
 } OpenBSDProcessList;
 
-/*
- * avoid relying on or conflicting with MIN() and MAX() in sys/param.h
- */
-#ifndef MINIMUM
-#define MINIMUM(x, y)		((x) > (y) ? (y) : (x))
-#endif
 
-#ifndef MAXIMUM
-#define MAXIMUM(x, y)		((x) > (y) ? (x) : (y))
-#endif
-
-#ifndef CLAMP
-#define CLAMP(x, low, high)	(((x) > (high)) ? (high) : MAXIMUM(x, low))
-#endif
-
-ProcessList* ProcessList_new(UsersTable* usersTable, Hashtable* pidWhiteList, uid_t userId);
+ProcessList* ProcessList_new(UsersTable* usersTable, Hashtable* pidMatchList, uid_t userId);
 
 void ProcessList_delete(ProcessList* this);
 
 char *OpenBSDProcessList_readProcessName(kvm_t* kd, struct kinfo_proc* kproc, int* basenameEnd);
 
-void ProcessList_goThroughEntries(ProcessList* this);
+void ProcessList_goThroughEntries(ProcessList* this, bool pauseProcessUpdate);
 
 #endif

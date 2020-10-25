@@ -2,7 +2,7 @@
 htop - OpenBSDProcessList.c
 (C) 2014 Hisham H. Muhammad
 (C) 2015 Michael McConville
-Released under the GNU GPL, see the COPYING file
+Released under the GNU GPLv2, see the COPYING file
 in the source distribution for its full text.
 */
 
@@ -10,6 +10,7 @@ in the source distribution for its full text.
 #include "ProcessList.h"
 #include "OpenBSDProcessList.h"
 #include "OpenBSDProcess.h"
+#include "Macros.h"
 
 #include <err.h>
 #include <errno.h>
@@ -27,24 +28,9 @@ in the source distribution for its full text.
 #include <string.h>
 #include <unistd.h>
 
-/*
- * avoid relying on or conflicting with MIN() and MAX() in sys/param.h
- */
-#ifndef MINIMUM
-#define MINIMUM(x, y)		((x) > (y) ? (y) : (x))
-#endif
-
-#ifndef MAXIMUM
-#define MAXIMUM(x, y)		((x) > (y) ? (x) : (y))
-#endif
-
-#ifndef CLAMP
-#define CLAMP(x, low, high)	(((x) > (high)) ? (high) : MAXIMUM(x, low))
-#endif
-
 static long fscale;
 
-ProcessList* ProcessList_new(UsersTable* usersTable, Hashtable* pidWhiteList, uid_t userId) {
+ProcessList* ProcessList_new(UsersTable* usersTable, Hashtable* pidMatchList, uid_t userId) {
    int mib[] = { CTL_HW, HW_NCPU };
    int fmib[] = { CTL_KERN, KERN_FSCALE };
    int i, e;
@@ -56,7 +42,7 @@ ProcessList* ProcessList_new(UsersTable* usersTable, Hashtable* pidWhiteList, ui
    opl = xCalloc(1, sizeof(OpenBSDProcessList));
    pl = (ProcessList*) opl;
    size = sizeof(pl->cpuCount);
-   ProcessList_init(pl, Class(OpenBSDProcess), usersTable, pidWhiteList, userId);
+   ProcessList_init(pl, Class(OpenBSDProcess), usersTable, pidMatchList, userId);
 
    e = sysctl(mib, 2, &pl->cpuCount, &size, NULL, 0);
    if (e == -1 || pl->cpuCount < 1) {
@@ -105,7 +91,7 @@ static inline void OpenBSDProcessList_scanMemoryInfo(ProcessList* pl) {
       err(1, "uvmexp sysctl call failed");
    }
 
-   pl->totalMem = uvmexp.npages * PAGE_SIZE_KB;
+   pl->totalMem = uvmexp.npages * CRT_pageSizeKB;
 
    // Taken from OpenBSD systat/iostat.c, top/machine.c and uvm_sysctl(9)
    static int bcache_mib[] = {CTL_VFS, VFS_GENERIC, VFS_BCACHESTAT};
@@ -116,9 +102,9 @@ static inline void OpenBSDProcessList_scanMemoryInfo(ProcessList* pl) {
       err(1, "cannot get vfs.bcachestat");
    }
 
-   pl->cachedMem = bcstats.numbufpages * PAGE_SIZE_KB;
-   pl->freeMem = uvmexp.free * PAGE_SIZE_KB;
-   pl->usedMem = (uvmexp.npages - uvmexp.free - uvmexp.paging) * PAGE_SIZE_KB;
+   pl->cachedMem = bcstats.numbufpages * CRT_pageSizeKB;
+   pl->freeMem = uvmexp.free * CRT_pageSizeKB;
+   pl->usedMem = (uvmexp.npages - uvmexp.free - uvmexp.paging) * CRT_pageSizeKB;
 
    /*
    const OpenBSDProcessList* opl = (OpenBSDProcessList*) pl;
@@ -127,21 +113,21 @@ static inline void OpenBSDProcessList_scanMemoryInfo(ProcessList* pl) {
    sysctl(MIB_hw_physmem, 2, &(pl->totalMem), &len, NULL, 0);
    pl->totalMem /= 1024;
    sysctl(MIB_vm_stats_vm_v_wire_count, 4, &(pl->usedMem), &len, NULL, 0);
-   pl->usedMem *= PAGE_SIZE_KB;
+   pl->usedMem *= CRT_pageSizeKB;
    pl->freeMem = pl->totalMem - pl->usedMem;
    sysctl(MIB_vm_stats_vm_v_cache_count, 4, &(pl->cachedMem), &len, NULL, 0);
-   pl->cachedMem *= PAGE_SIZE_KB;
+   pl->cachedMem *= CRT_pageSizeKB;
 
    struct kvm_swap swap[16];
-   int nswap = kvm_getswapinfo(opl->kd, swap, sizeof(swap)/sizeof(swap[0]), 0);
+   int nswap = kvm_getswapinfo(opl->kd, swap, ARRAYSIZE(swap), 0);
    pl->totalSwap = 0;
    pl->usedSwap = 0;
    for (int i = 0; i < nswap; i++) {
       pl->totalSwap += swap[i].ksw_total;
       pl->usedSwap += swap[i].ksw_used;
    }
-   pl->totalSwap *= PAGE_SIZE_KB;
-   pl->usedSwap *= PAGE_SIZE_KB;
+   pl->totalSwap *= CRT_pageSizeKB;
+   pl->usedSwap *= CRT_pageSizeKB;
 
    pl->sharedMem = 0;  // currently unused
    pl->buffersMem = 0; // not exposed to userspace
@@ -206,16 +192,12 @@ static inline void OpenBSDProcessList_scanProcs(OpenBSDProcessList* this) {
    bool preExisting;
    Process* proc;
    OpenBSDProcess* fp;
-   struct tm date;
-   struct timeval tv;
    int count = 0;
    int i;
 
    // use KERN_PROC_KTHREAD to also include kernel threads
    struct kinfo_proc* kprocs = kvm_getprocs(this->kd, KERN_PROC_ALL, 0, sizeof(struct kinfo_proc), &count);
    //struct kinfo_proc* kprocs = getprocs(KERN_PROC_ALL, 0, &count);
-
-   gettimeofday(&tv, NULL);
 
    for (i = 0; i < count; i++) {
       kproc = &kprocs[i];
@@ -236,11 +218,10 @@ static inline void OpenBSDProcessList_scanProcs(OpenBSDProcessList* this) {
          proc->pgrp = kproc->p__pgid;
          proc->st_uid = kproc->p_uid;
          proc->starttime_ctime = kproc->p_ustart_sec;
+         Process_fillStarttimeBuffer(proc);
          proc->user = UsersTable_getRef(this->super.usersTable, proc->st_uid);
          ProcessList_add(&this->super, proc);
          proc->comm = OpenBSDProcessList_readProcessName(this->kd, kproc, &proc->basenameOffset);
-         (void) localtime_r((time_t*) &kproc->p_ustart_sec, &date);
-         strftime(proc->starttime_show, 7, ((proc->starttime_ctime > tv.tv_sec - 86400) ? "%R " : "%b%d "), &date);
       } else {
          if (settings->updateProcessNames) {
             free(proc->comm);
@@ -250,7 +231,7 @@ static inline void OpenBSDProcessList_scanProcs(OpenBSDProcessList* this) {
 
       proc->m_size = kproc->p_vm_dsize;
       proc->m_resident = kproc->p_vm_rssize;
-      proc->percent_mem = (proc->m_resident * PAGE_SIZE_KB) / (double)(this->super.totalMem) * 100.0;
+      proc->percent_mem = (proc->m_resident * CRT_pageSizeKB) / (double)(this->super.totalMem) * 100.0;
       proc->percent_cpu = CLAMP(getpcpu(kproc), 0.0, this->super.cpuCount*100.0);
       //proc->nlwp = kproc->p_numthreads;
       //proc->time = kproc->p_rtime_sec + ((kproc->p_rtime_usec + 500000) / 10);
@@ -359,10 +340,15 @@ static void OpenBSDProcessList_scanCPUTime(OpenBSDProcessList* this) {
    kernelCPUTimesToHtop(avg, this->cpus);
 }
 
-void ProcessList_goThroughEntries(ProcessList* this) {
+void ProcessList_goThroughEntries(ProcessList* this, bool pauseProcessUpdate) {
    OpenBSDProcessList* opl = (OpenBSDProcessList*) this;
 
    OpenBSDProcessList_scanMemoryInfo(this);
-   OpenBSDProcessList_scanProcs(opl);
    OpenBSDProcessList_scanCPUTime(opl);
+
+   // in pause mode only gather global data for meters (CPU/memory/...)
+   if (pauseProcessUpdate)
+      return;
+
+   OpenBSDProcessList_scanProcs(opl);
 }

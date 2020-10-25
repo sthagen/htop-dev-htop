@@ -4,9 +4,20 @@
 htop - LinuxProcess.h
 (C) 2014 Hisham H. Muhammad
 (C) 2020 Red Hat, Inc.  All Rights Reserved.
-Released under the GNU GPL, see the COPYING file
+Released under the GNU GPLv2, see the COPYING file
 in the source distribution for its full text.
 */
+
+#include "config.h"
+
+#include <stdbool.h>
+#include <sys/types.h>
+
+#include "IOPriority.h"
+#include "Object.h"
+#include "Process.h"
+#include "RichString.h"
+#include "Settings.h"
 
 #define PROCESS_FLAG_LINUX_IOPRIO   0x0100
 #define PROCESS_FLAG_LINUX_OPENVZ   0x0200
@@ -14,6 +25,8 @@ in the source distribution for its full text.
 #define PROCESS_FLAG_LINUX_CGROUP   0x0800
 #define PROCESS_FLAG_LINUX_OOM      0x1000
 #define PROCESS_FLAG_LINUX_SMAPS    0x2000
+#define PROCESS_FLAG_LINUX_CTXT     0x4000
+#define PROCESS_FLAG_LINUX_SECATTR  0x8000
 
 typedef enum UnsupportedProcessFields {
    FLAGS = 9,
@@ -80,10 +93,10 @@ typedef enum LinuxProcessFields {
    M_PSS = 119,
    M_SWAP = 120,
    M_PSSWP = 121,
-   LAST_PROCESSFIELD = 122,
+   CTXT = 122,
+   SECATTR = 123,
+   LAST_PROCESSFIELD = 124,
 } LinuxProcessField;
-
-#include "IOPriority.h"
 
 typedef struct LinuxProcess_ {
    Process super;
@@ -103,7 +116,6 @@ typedef struct LinuxProcess_ {
    long m_drs;
    long m_lrs;
    long m_dt;
-   unsigned long long starttime;
    #ifdef HAVE_TASKSTATS
    unsigned long long io_rchar;
    unsigned long long io_wchar;
@@ -118,8 +130,8 @@ typedef struct LinuxProcess_ {
    double io_rate_write_bps;
    #endif
    #ifdef HAVE_OPENVZ
-   unsigned int ctid;
-   unsigned int vpid;
+   char* ctid;
+   pid_t vpid;
    #endif
    #ifdef HAVE_VSERVER
    unsigned int vxid;
@@ -138,9 +150,12 @@ typedef struct LinuxProcess_ {
    float blkio_delay_percent;
    float swapin_delay_percent;
    #endif
+   unsigned long ctxt_total;
+   unsigned long ctxt_diff;
+   char *secattr;
 } LinuxProcess;
 
-#define Process_isKernelThread(_process) (((LinuxProcess*)(_process))->isKernelThread)
+#define Process_isKernelThread(_process) (((const LinuxProcess*)(_process))->isKernelThread)
 
 #define Process_isUserlandThread(_process) (_process->pid != _process->tgid)
 
@@ -150,7 +165,7 @@ extern ProcessFieldData Process_fields[];
 
 extern ProcessPidColumn Process_pidColumns[];
 
-extern ProcessClass LinuxProcess_class;
+extern const ProcessClass LinuxProcess_class;
 
 LinuxProcess* LinuxProcess_new(Settings* settings);
 
@@ -178,6 +193,6 @@ void LinuxProcess_writeField(Process* this, RichString* str, ProcessField field)
 
 long LinuxProcess_compare(const void* v1, const void* v2);
 
-bool Process_isThread(Process* this);
+bool Process_isThread(const Process* this);
 
 #endif

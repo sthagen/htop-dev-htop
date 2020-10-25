@@ -3,7 +3,7 @@
 /*
 htop - DarwinProcessList.h
 (C) 2014 Hisham H. Muhammad
-Released under the GNU GPL, see the COPYING file
+Released under the GNU GPLv2, see the COPYING file
 in the source distribution for its full text.
 */
 
@@ -47,10 +47,10 @@ void ProcessList_getVMStats(vm_statistics_t p);
 
 struct kinfo_proc *ProcessList_getKInfoProcs(size_t *count);
 
-ProcessList* ProcessList_new(UsersTable* usersTable, Hashtable* pidWhiteList, uid_t userId);
+ProcessList* ProcessList_new(UsersTable* usersTable, Hashtable* pidMatchList, uid_t userId);
 
 void ProcessList_delete(ProcessList* this);
 
-void ProcessList_goThroughEntries(ProcessList* super);
+void ProcessList_goThroughEntries(ProcessList* super, bool pauseProcessUpdate);
 
 #endif

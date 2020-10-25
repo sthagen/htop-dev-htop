@@ -4,7 +4,7 @@
 htop - DragonFlyBSDProcessList.h
 (C) 2014 Hisham H. Muhammad
 (C) 2017 Diederik de Groot
-Released under the GNU GPL, see the COPYING file
+Released under the GNU GPLv2, see the COPYING file
 in the source distribution for its full text.
 */
 
@@ -19,7 +19,7 @@ in the source distribution for its full text.
 #include "Hashtable.h"
 #include "DragonFlyBSDProcess.h"
 
-#define JAIL_ERRMSGLEN	1024
+#define JAIL_ERRMSGLEN 1024
 extern char jail_errmsg[JAIL_ERRMSGLEN];
 
 typedef struct CPUData_ {
@@ -51,9 +51,7 @@ typedef struct DragonFlyBSDProcessList_ {
    Hashtable *jails;
 } DragonFlyBSDProcessList;
 
-#define _UNUSED_ __attribute__((unused))
-
-ProcessList* ProcessList_new(UsersTable* usersTable, Hashtable* pidWhiteList, uid_t userId);
+ProcessList* ProcessList_new(UsersTable* usersTable, Hashtable* pidMatchList, uid_t userId);
 
 void ProcessList_delete(ProcessList* this);
 
@@ -61,6 +59,6 @@ char* DragonFlyBSDProcessList_readProcessName(kvm_t* kd, struct kinfo_proc* kpro
 
 char* DragonFlyBSDProcessList_readJailName(DragonFlyBSDProcessList* dfpl, int jailid);
 
-void ProcessList_goThroughEntries(ProcessList* this);
+void ProcessList_goThroughEntries(ProcessList* this, pauseProcessUpdate);
 
 #endif

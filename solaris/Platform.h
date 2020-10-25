@@ -5,7 +5,7 @@ htop - solaris/Platform.h
 (C) 2014 Hisham H. Muhammad
 (C) 2015 David C. Hunt
 (C) 2017,2018 Guy M. Broome
-Released under the GNU GPL, see the COPYING file
+Released under the GNU GPLv2, see the COPYING file
 in the source distribution for its full text.
 */
 
@@ -37,7 +37,7 @@ extern const unsigned int Platform_numberOfSignals;
 
 extern ProcessField Platform_defaultFields[];
 
-extern MeterClass* Platform_meterTypes[];
+extern const MeterClass* const Platform_meterTypes[];
 
 void Platform_setBindings(Htop_Action* keys);
 
@@ -45,11 +45,11 @@ extern int Platform_numberOfFields;
 
 extern char Process_pidFormat[20];
 
-int Platform_getUptime();
+int Platform_getUptime(void);
 
 void Platform_getLoadAverage(double* one, double* five, double* fifteen);
 
-int Platform_getMaxPid();
+int Platform_getMaxPid(void);
 
 double Platform_setCPUValues(Meter* this, int cpu);
 
@@ -62,5 +62,12 @@ void Platform_setZfsArcValues(Meter* this);
 void Platform_setZfsCompressedArcValues(Meter* this);
 
 char* Platform_getProcessEnv(pid_t pid);
+
+void Platform_getDiskIO(unsigned long int *bytesRead, unsigned long int *bytesWrite, unsigned long int *msTimeSpend);
+
+void Platform_getNetworkIO(unsigned long int *bytesReceived,
+                           unsigned long int *packetsReceived,
+                           unsigned long int *bytesTransmitted,
+                           unsigned long int *packetsTransmitted);
 
 #endif

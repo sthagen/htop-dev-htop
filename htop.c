@@ -1,63 +1,74 @@
 /*
 htop - htop.c
 (C) 2004-2011 Hisham H. Muhammad
-Released under the GNU GPL, see the COPYING file
+Released under the GNU GPLv2, see the COPYING file
 in the source distribution for its full text.
 */
 
-#include "config.h"
+#include "config.h" // IWYU pragma: keep
 
-#include "FunctionBar.h"
-#include "Hashtable.h"
-#include "ColumnsPanel.h"
-#include "CRT.h"
-#include "MainPanel.h"
-#include "ProcessList.h"
-#include "ScreenManager.h"
-#include "Settings.h"
-#include "UsersTable.h"
-#include "Platform.h"
-
+#include <assert.h>
 #include <getopt.h>
 #include <locale.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
 
+#include "Action.h"
+#include "ColumnsPanel.h"
+#include "CRT.h"
+#include "Hashtable.h"
+#include "Header.h"
+#include "IncSet.h"
+#include "MainPanel.h"
+#include "MetersPanel.h"
+#include "Panel.h"
+#include "Platform.h"
+#include "Process.h"
+#include "ProcessList.h"
+#include "ProvideCurses.h"
+#include "ScreenManager.h"
+#include "Settings.h"
+#include "UsersTable.h"
+#include "XUtils.h"
+
+
 //#link m
 
-static void printVersionFlag() {
+static void printVersionFlag(void) {
    fputs("htop " VERSION "\n", stdout);
-   exit(0);
 }
 
-static void printHelpFlag() {
+static void printHelpFlag(void) {
    fputs("htop " VERSION "\n"
-         "Released under the GNU GPL.\n\n"
+         COPYRIGHT "\n"
+         "Released under the GNU GPLv2.\n\n"
          "-C --no-color               Use a monochrome color scheme\n"
-         "-m --no-mouse               Disable the mouse\n"
          "-d --delay=DELAY            Set the delay between updates, in tenths of seconds\n"
+         "-F --filter=FILTER          Show only the commands matching the given filter\n"
          "-h --help                   Print this help screen\n"
+         "-M --no-mouse               Disable the mouse\n"
+         "-p --pid=PID,[,PID,PID...]  Show only the given PIDs\n"
          "-s --sort-key=COLUMN        Sort by COLUMN (try --sort-key=help for a list)\n"
          "-t --tree                   Show the tree view by default\n"
          "-u --user[=USERNAME]        Show only processes for a given user (or $USER)\n"
          "-U --no-unicode             Do not use unicode but plain ASCII\n"
-         "-p --pid=PID,[,PID,PID...]  Show only the given PIDs\n"
-         "-v --version                Print version info\n"
+         "-V --version                Print version info\n"
          "\n"
          "Long options may be passed with a single dash.\n\n"
          "Press F1 inside htop for online help.\n"
          "See 'man htop' for more information.\n",
          stdout);
-   exit(0);
 }
 
 // ----------------------------------------
 
 typedef struct CommandLineSettings_ {
-   Hashtable* pidWhiteList;
+   Hashtable* pidMatchList;
+   char* commFilter;
    uid_t userId;
    int sortKey;
    int delay;
@@ -70,8 +81,9 @@ typedef struct CommandLineSettings_ {
 static CommandLineSettings parseArguments(int argc, char** argv) {
 
    CommandLineSettings flags = {
-      .pidWhiteList = NULL,
-      .userId = -1, // -1 is guaranteed to be an invalid uid_t (see setreuid(2))
+      .pidMatchList = NULL,
+      .commFilter = NULL,
+      .userId = (uid_t)-1, // -1 is guaranteed to be an invalid uid_t (see setreuid(2))
       .sortKey = 0,
       .delay = -1,
       .useColors = true,
@@ -83,32 +95,34 @@ static CommandLineSettings parseArguments(int argc, char** argv) {
    static struct option long_opts[] =
    {
       {"help",       no_argument,         0, 'h'},
-      {"version",    no_argument,         0, 'v'},
+      {"version",    no_argument,         0, 'V'},
       {"delay",      required_argument,   0, 'd'},
       {"sort-key",   required_argument,   0, 's'},
       {"user",       optional_argument,   0, 'u'},
       {"no-color",   no_argument,         0, 'C'},
       {"no-colour",  no_argument,         0, 'C'},
-      {"no-mouse",   no_argument,         0, 'm'},
+      {"no-mouse",   no_argument,         0, 'M'},
       {"no-unicode", no_argument,         0, 'U'},
       {"tree",       no_argument,         0, 't'},
       {"pid",        required_argument,   0, 'p'},
+      {"filter",     required_argument,   0, 'F'},
       {0,0,0,0}
    };
 
    int opt, opti=0;
    /* Parse arguments */
-   while ((opt = getopt_long(argc, argv, "hvmCs:td:u::Up:", long_opts, &opti))) {
+   while ((opt = getopt_long(argc, argv, "hVMCs:td:u::Up:F:", long_opts, &opti))) {
       if (opt == EOF) break;
       switch (opt) {
          case 'h':
             printHelpFlag();
-            break;
-         case 'v':
+            exit(0);
+         case 'V':
             printVersionFlag();
-            break;
+            exit(0);
          case 's':
-            if (strcmp(optarg, "help") == 0) {
+            assert(optarg); /* please clang analyzer, cause optarg can be NULL in the 'u' case */
+            if (String_eq(optarg, "help")) {
                for (int j = 1; j < Platform_numberOfFields; j++) {
                   const char* name = Process_fields[j].name;
                   if (name) printf ("%s\n", name);
@@ -131,25 +145,25 @@ static CommandLineSettings parseArguments(int argc, char** argv) {
             }
             break;
          case 'u':
-            if (!optarg && optind < argc && argv[optind] != NULL &&
+         {
+            const char *username = optarg;
+            if (!username && optind < argc && argv[optind] != NULL &&
                 (argv[optind][0] != '\0' && argv[optind][0] != '-')) {
-               optarg = argv[optind++];
+               username = argv[optind++];
             }
 
-            if (!optarg) {
-               optarg = getenv("USER");
+            if (!username) {
                flags.userId = geteuid();
-            }
-
-            if (!Action_setUserOnly(optarg, &(flags.userId))) {
-               fprintf(stderr, "Error: invalid user \"%s\".\n", optarg);
+            } else if (!Action_setUserOnly(username, &(flags.userId))) {
+               fprintf(stderr, "Error: invalid user \"%s\".\n", username);
                exit(1);
             }
             break;
+         }
          case 'C':
             flags.useColors = false;
             break;
-         case 'm':
+         case 'M':
             flags.enableMouse = false;
             break;
          case 'U':
@@ -159,20 +173,28 @@ static CommandLineSettings parseArguments(int argc, char** argv) {
             flags.treeView = true;
             break;
          case 'p': {
+            assert(optarg); /* please clang analyzer, cause optarg can be NULL in the 'u' case */
             char* argCopy = xStrdup(optarg);
             char* saveptr;
             char* pid = strtok_r(argCopy, ",", &saveptr);
 
-            if(!flags.pidWhiteList) {
-               flags.pidWhiteList = Hashtable_new(8, false);
+            if(!flags.pidMatchList) {
+               flags.pidMatchList = Hashtable_new(8, false);
             }
 
             while(pid) {
                 unsigned int num_pid = atoi(pid);
-                Hashtable_put(flags.pidWhiteList, num_pid, (void *) 1);
+                //  deepcode ignore CastIntegerToAddress: we just want a non-NUll pointer here
+                Hashtable_put(flags.pidMatchList, num_pid, (void *) 1);
                 pid = strtok_r(NULL, ",", &saveptr);
             }
             free(argCopy);
+
+            break;
+         }
+         case 'F': {
+            assert(optarg);
+            flags.commFilter = xStrdup(optarg);
 
             break;
          }
@@ -191,6 +213,23 @@ static void millisleep(unsigned long millisec) {
    while(nanosleep(&req,&req)==-1) {
       continue;
    }
+}
+
+static void setCommFilter(State* state, char** commFilter) {
+   MainPanel* panel = (MainPanel*)state->panel;
+   ProcessList* pl = state->pl;
+   IncSet* inc = panel->inc;
+   size_t maxlen = sizeof(inc->modes[INC_FILTER].buffer) - 1;
+   char* buffer = inc->modes[INC_FILTER].buffer;
+
+   strncpy(buffer, *commFilter, maxlen);
+   buffer[maxlen] = 0;
+   inc->modes[INC_FILTER].index = strlen(buffer);
+   inc->filtering = true;
+   pl->incFilter = IncSet_filter(inc);
+
+   free(*commFilter);
+   *commFilter = NULL;
 }
 
 int main(int argc, char** argv) {
@@ -215,7 +254,7 @@ int main(int argc, char** argv) {
    Process_setupColumnWidths();
 
    UsersTable* ut = UsersTable_new();
-   ProcessList* pl = ProcessList_new(ut, flags.pidWhiteList, flags.userId);
+   ProcessList* pl = ProcessList_new(ut, flags.pidMatchList, flags.userId);
 
    Settings* settings = Settings_new(pl->cpuCount);
    pl->settings = settings;
@@ -253,15 +292,20 @@ int main(int argc, char** argv) {
       .pl = pl,
       .panel = (Panel*) panel,
       .header = header,
+      .pauseProcessUpdate = false,
    };
-   MainPanel_setState(panel, &state);
 
-   ScreenManager* scr = ScreenManager_new(0, header->height, 0, -1, HORIZONTAL, header, settings, true);
+   MainPanel_setState(panel, &state);
+   if (flags.commFilter) {
+      setCommFilter(&state, &(flags.commFilter));
+   }
+
+   ScreenManager* scr = ScreenManager_new(0, header->height, 0, -1, HORIZONTAL, header, settings, &state, true);
    ScreenManager_add(scr, (Panel*) panel, -1);
 
-   ProcessList_scan(pl);
+   ProcessList_scan(pl, false);
    millisleep(75);
-   ProcessList_scan(pl);
+   ProcessList_scan(pl, false);
 
    ScreenManager_run(scr, NULL, NULL);
 
@@ -277,12 +321,13 @@ int main(int argc, char** argv) {
    ProcessList_delete(pl);
 
    ScreenManager_delete(scr);
+   MetersPanel_cleanup();
 
    UsersTable_delete(ut);
    Settings_delete(settings);
 
-   if(flags.pidWhiteList) {
-      Hashtable_delete(flags.pidWhiteList);
+   if(flags.pidMatchList) {
+      Hashtable_delete(flags.pidMatchList);
    }
    return 0;
 }

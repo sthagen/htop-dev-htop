@@ -1,49 +1,48 @@
 /*
 htop - CRT.c
 (C) 2004-2011 Hisham H. Muhammad
-Released under the GNU GPL, see the COPYING file
+Released under the GNU GPLv2, see the COPYING file
 in the source distribution for its full text.
 */
 
-#include "config.h"
+#include "config.h" // IWYU pragma: keep
+
 #include "CRT.h"
 
-#include "StringUtils.h"
-#include "RichString.h"
-
-#include <stdio.h>
 #include <errno.h>
+#include <langinfo.h>
+#include <locale.h>
 #include <signal.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <locale.h>
-#include <langinfo.h>
-#if HAVE_SETUID_ENABLED
 #include <unistd.h>
-#include <sys/types.h>
+
+#include "ProvideCurses.h"
+#include "XUtils.h"
+
+#ifdef HAVE_EXECINFO_H
+#include <execinfo.h>
 #endif
 
-#define ColorIndex(i,j) ((7-i)*8+j)
+
+#define ColorIndex(i,j) ((7-(i))*8+(j))
 
 #define ColorPair(i,j) COLOR_PAIR(ColorIndex(i,j))
 
-#define Black COLOR_BLACK
-#define Red COLOR_RED
-#define Green COLOR_GREEN
-#define Yellow COLOR_YELLOW
-#define Blue COLOR_BLUE
+#define Black   COLOR_BLACK
+#define Red     COLOR_RED
+#define Green   COLOR_GREEN
+#define Yellow  COLOR_YELLOW
+#define Blue    COLOR_BLUE
 #define Magenta COLOR_MAGENTA
-#define Cyan COLOR_CYAN
-#define White COLOR_WHITE
+#define Cyan    COLOR_CYAN
+#define White   COLOR_WHITE
 
-#define ColorPairGrayBlack ColorPair(Magenta,Magenta)
+#define ColorPairGrayBlack  ColorPair(Magenta,Magenta)
 #define ColorIndexGrayBlack ColorIndex(Magenta,Magenta)
 
-#define KEY_WHEELUP KEY_F(20)
-#define KEY_WHEELDOWN KEY_F(21)
-#define KEY_RECLICK KEY_F(22)
-
-const char *CRT_treeStrAscii[TREE_STR_COUNT] = {
+static const char *const CRT_treeStrAscii[TREE_STR_COUNT] = {
    "-", // TREE_STR_HORZ
    "|", // TREE_STR_VERT
    "`", // TREE_STR_RTEE
@@ -55,7 +54,7 @@ const char *CRT_treeStrAscii[TREE_STR_COUNT] = {
 
 #ifdef HAVE_LIBNCURSESW
 
-const char *CRT_treeStrUtf8[TREE_STR_COUNT] = {
+static const char *const CRT_treeStrUtf8[TREE_STR_COUNT] = {
    "\xe2\x94\x80", // TREE_STR_HORZ ─
    "\xe2\x94\x82", // TREE_STR_VERT │
    "\xe2\x94\x9c", // TREE_STR_RTEE ├
@@ -71,13 +70,11 @@ bool CRT_utf8 = false;
 
 #endif
 
-const char **CRT_treeStr = CRT_treeStrAscii;
+const char *const *CRT_treeStr = CRT_treeStrAscii;
 
-static bool CRT_hasColors;
+int CRT_delay;
 
-int CRT_delay = 0;
-
-int* CRT_colors;
+const int* CRT_colors;
 
 int CRT_colorSchemes[LAST_COLORSCHEME][LAST_COLORELEMENT] = {
    [COLORSCHEME_DEFAULT] = {
@@ -91,17 +88,22 @@ int CRT_colorSchemes[LAST_COLORSCHEME][LAST_COLORELEMENT] = {
       [PANEL_SELECTION_FOLLOW] = ColorPair(Black,Yellow),
       [PANEL_SELECTION_UNFOCUS] = ColorPair(Black,White),
       [FAILED_SEARCH] = ColorPair(Red,Cyan),
+      [PAUSED] = A_BOLD | ColorPair(Yellow,Cyan),
       [UPTIME] = A_BOLD | ColorPair(Cyan,Black),
       [BATTERY] = A_BOLD | ColorPair(Cyan,Black),
       [LARGE_NUMBER] = A_BOLD | ColorPair(Red,Black),
       [METER_TEXT] = ColorPair(Cyan,Black),
       [METER_VALUE] = A_BOLD | ColorPair(Cyan,Black),
+      [METER_VALUE_NOTICE] = A_BOLD | ColorPair(White,Black),
+      [METER_VALUE_IOREAD] = ColorPair(Green,Black),
+      [METER_VALUE_IOWRITE] = ColorPair(Blue,Black),
       [LED_COLOR] = ColorPair(Green,Black),
       [TASKS_RUNNING] = A_BOLD | ColorPair(Green,Black),
       [PROCESS] = A_NORMAL,
       [PROCESS_SHADOW] = A_BOLD | ColorPairGrayBlack,
       [PROCESS_TAG] = A_BOLD | ColorPair(Yellow,Black),
       [PROCESS_MEGABYTES] = ColorPair(Cyan,Black),
+      [PROCESS_GIGABYTES] = ColorPair(Green,Black),
       [PROCESS_BASENAME] = A_BOLD | ColorPair(Cyan,Black),
       [PROCESS_TREE] = ColorPair(Cyan,Black),
       [PROCESS_R_STATE] = ColorPair(Green,Black),
@@ -125,6 +127,8 @@ int CRT_colorSchemes[LAST_COLORSCHEME][LAST_COLORELEMENT] = {
       [LOAD] = A_BOLD,
       [HELP_BOLD] = A_BOLD | ColorPair(Cyan,Black),
       [CLOCK] = A_BOLD,
+      [DATE] = A_BOLD,
+      [DATETIME] = A_BOLD,
       [CHECK_BOX] = ColorPair(Cyan,Black),
       [CHECK_MARK] = A_BOLD,
       [CHECK_TEXT] = A_NORMAL,
@@ -160,17 +164,22 @@ int CRT_colorSchemes[LAST_COLORSCHEME][LAST_COLORELEMENT] = {
       [PANEL_SELECTION_FOLLOW] = A_REVERSE,
       [PANEL_SELECTION_UNFOCUS] = A_BOLD,
       [FAILED_SEARCH] = A_REVERSE | A_BOLD,
+      [PAUSED] = A_BOLD | A_REVERSE,
       [UPTIME] = A_BOLD,
       [BATTERY] = A_BOLD,
       [LARGE_NUMBER] = A_BOLD,
       [METER_TEXT] = A_NORMAL,
       [METER_VALUE] = A_BOLD,
+      [METER_VALUE_NOTICE] = A_BOLD,
+      [METER_VALUE_IOREAD] = A_NORMAL,
+      [METER_VALUE_IOWRITE] = A_NORMAL,
       [LED_COLOR] = A_NORMAL,
       [TASKS_RUNNING] = A_BOLD,
       [PROCESS] = A_NORMAL,
       [PROCESS_SHADOW] = A_DIM,
       [PROCESS_TAG] = A_BOLD,
       [PROCESS_MEGABYTES] = A_BOLD,
+      [PROCESS_GIGABYTES] = A_BOLD,
       [PROCESS_BASENAME] = A_BOLD,
       [PROCESS_TREE] = A_BOLD,
       [PROCESS_R_STATE] = A_BOLD,
@@ -194,6 +203,8 @@ int CRT_colorSchemes[LAST_COLORSCHEME][LAST_COLORELEMENT] = {
       [LOAD] = A_BOLD,
       [HELP_BOLD] = A_BOLD,
       [CLOCK] = A_BOLD,
+      [DATE] = A_BOLD,
+      [DATETIME] = A_BOLD,
       [CHECK_BOX] = A_BOLD,
       [CHECK_MARK] = A_NORMAL,
       [CHECK_TEXT] = A_NORMAL,
@@ -205,8 +216,8 @@ int CRT_colorSchemes[LAST_COLORSCHEME][LAST_COLORELEMENT] = {
       [CPU_IOWAIT] = A_NORMAL,
       [CPU_IRQ] = A_BOLD,
       [CPU_SOFTIRQ] = A_BOLD,
-      [CPU_STEAL] = A_REVERSE,
-      [CPU_GUEST] = A_REVERSE,
+      [CPU_STEAL] = A_DIM,
+      [CPU_GUEST] = A_DIM,
       [PRESSURE_STALL_THREEHUNDRED] = A_DIM,
       [PRESSURE_STALL_SIXTY] = A_NORMAL,
       [PRESSURE_STALL_TEN] = A_BOLD,
@@ -229,17 +240,22 @@ int CRT_colorSchemes[LAST_COLORSCHEME][LAST_COLORELEMENT] = {
       [PANEL_SELECTION_FOLLOW] = ColorPair(Black,Yellow),
       [PANEL_SELECTION_UNFOCUS] = ColorPair(Blue,White),
       [FAILED_SEARCH] = ColorPair(Red,Cyan),
+      [PAUSED] = A_BOLD | ColorPair(Yellow,Cyan),
       [UPTIME] = ColorPair(Yellow,White),
       [BATTERY] = ColorPair(Yellow,White),
       [LARGE_NUMBER] = ColorPair(Red,White),
       [METER_TEXT] = ColorPair(Blue,White),
       [METER_VALUE] = ColorPair(Black,White),
+      [METER_VALUE_NOTICE] = A_BOLD | ColorPair(Yellow,White),
+      [METER_VALUE_IOREAD] = ColorPair(Green,White),
+      [METER_VALUE_IOWRITE] = ColorPair(Yellow,White),
       [LED_COLOR] = ColorPair(Green,White),
       [TASKS_RUNNING] = ColorPair(Green,White),
       [PROCESS] = ColorPair(Black,White),
       [PROCESS_SHADOW] = A_BOLD | ColorPair(Black,White),
       [PROCESS_TAG] = ColorPair(White,Blue),
       [PROCESS_MEGABYTES] = ColorPair(Blue,White),
+      [PROCESS_GIGABYTES] = ColorPair(Green,White),
       [PROCESS_BASENAME] = ColorPair(Blue,White),
       [PROCESS_TREE] = ColorPair(Green,White),
       [PROCESS_R_STATE] = ColorPair(Green,White),
@@ -263,6 +279,8 @@ int CRT_colorSchemes[LAST_COLORSCHEME][LAST_COLORELEMENT] = {
       [LOAD] = ColorPair(Black,White),
       [HELP_BOLD] = ColorPair(Blue,White),
       [CLOCK] = ColorPair(Black,White),
+      [DATE] = ColorPair(Black,White),
+      [DATETIME] = ColorPair(Black,White),
       [CHECK_BOX] = ColorPair(Blue,White),
       [CHECK_MARK] = ColorPair(Black,White),
       [CHECK_TEXT] = ColorPair(Black,White),
@@ -288,27 +306,32 @@ int CRT_colorSchemes[LAST_COLORSCHEME][LAST_COLORELEMENT] = {
       [ZFS_RATIO] = ColorPair(Magenta,White),
    },
    [COLORSCHEME_LIGHTTERMINAL] = {
-      [RESET_COLOR] = ColorPair(Black,Black),
-      [DEFAULT_COLOR] = ColorPair(Black,Black),
+      [RESET_COLOR] = ColorPair(Blue,Black),
+      [DEFAULT_COLOR] = ColorPair(Blue,Black),
       [FUNCTION_BAR] = ColorPair(Black,Cyan),
-      [FUNCTION_KEY] = ColorPair(Black,Black),
+      [FUNCTION_KEY] = ColorPair(Blue,Black),
       [PANEL_HEADER_FOCUS] = ColorPair(Black,Green),
       [PANEL_HEADER_UNFOCUS] = ColorPair(Black,Green),
       [PANEL_SELECTION_FOCUS] = ColorPair(Black,Cyan),
       [PANEL_SELECTION_FOLLOW] = ColorPair(Black,Yellow),
       [PANEL_SELECTION_UNFOCUS] = ColorPair(Blue,Black),
       [FAILED_SEARCH] = ColorPair(Red,Cyan),
+      [PAUSED] = A_BOLD | ColorPair(Yellow,Cyan),
       [UPTIME] = ColorPair(Yellow,Black),
       [BATTERY] = ColorPair(Yellow,Black),
       [LARGE_NUMBER] = ColorPair(Red,Black),
       [METER_TEXT] = ColorPair(Blue,Black),
-      [METER_VALUE] = ColorPair(Black,Black),
+      [METER_VALUE] = ColorPair(Blue,Black),
+      [METER_VALUE_NOTICE] = A_BOLD | ColorPair(Yellow,Black),
+      [METER_VALUE_IOREAD] = ColorPair(Green,Black),
+      [METER_VALUE_IOWRITE] = ColorPair(Yellow,Black),
       [LED_COLOR] = ColorPair(Green,Black),
       [TASKS_RUNNING] = ColorPair(Green,Black),
-      [PROCESS] = ColorPair(Black,Black),
+      [PROCESS] = ColorPair(Blue,Black),
       [PROCESS_SHADOW] = A_BOLD | ColorPairGrayBlack,
-      [PROCESS_TAG] = ColorPair(White,Blue),
+      [PROCESS_TAG] = ColorPair(Yellow,Blue),
       [PROCESS_MEGABYTES] = ColorPair(Blue,Black),
+      [PROCESS_GIGABYTES] = ColorPair(Green,Black),
       [PROCESS_BASENAME] = ColorPair(Green,Black),
       [PROCESS_TREE] = ColorPair(Blue,Black),
       [PROCESS_R_STATE] = ColorPair(Green,Black),
@@ -326,32 +349,34 @@ int CRT_colorSchemes[LAST_COLORSCHEME][LAST_COLORELEMENT] = {
       [MEMORY_BUFFERS] = ColorPair(Cyan,Black),
       [MEMORY_BUFFERS_TEXT] = ColorPair(Cyan,Black),
       [MEMORY_CACHE] = ColorPair(Yellow,Black),
-      [LOAD_AVERAGE_FIFTEEN] = ColorPair(Black,Black),
-      [LOAD_AVERAGE_FIVE] = ColorPair(Black,Black),
-      [LOAD_AVERAGE_ONE] = ColorPair(Black,Black),
-      [LOAD] = ColorPair(White,Black),
+      [LOAD_AVERAGE_FIFTEEN] = ColorPair(Blue,Black),
+      [LOAD_AVERAGE_FIVE] = ColorPair(Blue,Black),
+      [LOAD_AVERAGE_ONE] = ColorPair(Yellow,Black),
+      [LOAD] = ColorPair(Yellow,Black),
       [HELP_BOLD] = ColorPair(Blue,Black),
-      [CLOCK] = ColorPair(White,Black),
+      [CLOCK] = ColorPair(Yellow,Black),
+      [DATE] = ColorPair(White,Black),
+      [DATETIME] = ColorPair(White,Black),
       [CHECK_BOX] = ColorPair(Blue,Black),
-      [CHECK_MARK] = ColorPair(Black,Black),
-      [CHECK_TEXT] = ColorPair(Black,Black),
-      [HOSTNAME] = ColorPair(White,Black),
+      [CHECK_MARK] = ColorPair(Blue,Black),
+      [CHECK_TEXT] = ColorPair(Blue,Black),
+      [HOSTNAME] = ColorPair(Yellow,Black),
       [CPU_NICE] = ColorPair(Cyan,Black),
       [CPU_NICE_TEXT] = ColorPair(Cyan,Black),
       [CPU_NORMAL] = ColorPair(Green,Black),
       [CPU_SYSTEM] = ColorPair(Red,Black),
-      [CPU_IOWAIT] = A_BOLD | ColorPair(Black,Black),
+      [CPU_IOWAIT] = A_BOLD | ColorPair(Blue,Black),
       [CPU_IRQ] = A_BOLD | ColorPair(Blue,Black),
       [CPU_SOFTIRQ] = ColorPair(Blue,Black),
-      [CPU_STEAL] = ColorPair(Black,Black),
-      [CPU_GUEST] = ColorPair(Black,Black),
-      [PRESSURE_STALL_THREEHUNDRED] = ColorPair(Black,Black),
-      [PRESSURE_STALL_SIXTY] = ColorPair(Black,Black),
-      [PRESSURE_STALL_TEN] = ColorPair(Black,Black),
+      [CPU_STEAL] = ColorPair(Blue,Black),
+      [CPU_GUEST] = ColorPair(Blue,Black),
+      [PRESSURE_STALL_THREEHUNDRED] = ColorPair(Blue,Black),
+      [PRESSURE_STALL_SIXTY] = ColorPair(Blue,Black),
+      [PRESSURE_STALL_TEN] = ColorPair(Blue,Black),
       [ZFS_MFU] = ColorPair(Cyan,Black),
       [ZFS_MRU] = ColorPair(Yellow,Black),
       [ZFS_ANON] = A_BOLD | ColorPair(Magenta,Black),
-      [ZFS_HEADER] = ColorPair(Black,Black),
+      [ZFS_HEADER] = ColorPair(Blue,Black),
       [ZFS_OTHER] = A_BOLD | ColorPair(Magenta,Black),
       [ZFS_COMPRESSED] = ColorPair(Cyan,Black),
       [ZFS_RATIO] = A_BOLD | ColorPair(Magenta,Black),
@@ -367,17 +392,22 @@ int CRT_colorSchemes[LAST_COLORSCHEME][LAST_COLORELEMENT] = {
       [PANEL_SELECTION_FOLLOW] = ColorPair(Black,Yellow),
       [PANEL_SELECTION_UNFOCUS] = A_BOLD | ColorPair(Yellow,Blue),
       [FAILED_SEARCH] = ColorPair(Red,Cyan),
+      [PAUSED] = A_BOLD | ColorPair(Yellow,Cyan),
       [UPTIME] = A_BOLD | ColorPair(Yellow,Blue),
       [BATTERY] = A_BOLD | ColorPair(Yellow,Blue),
       [LARGE_NUMBER] = A_BOLD | ColorPair(Red,Blue),
       [METER_TEXT] = ColorPair(Cyan,Blue),
       [METER_VALUE] = A_BOLD | ColorPair(Cyan,Blue),
+      [METER_VALUE_NOTICE] = A_BOLD | ColorPair(White,Blue),
+      [METER_VALUE_IOREAD] = ColorPair(Green,Blue),
+      [METER_VALUE_IOWRITE] = ColorPair(Black,Blue),
       [LED_COLOR] = ColorPair(Green,Blue),
       [TASKS_RUNNING] = A_BOLD | ColorPair(Green,Blue),
       [PROCESS] = ColorPair(White,Blue),
       [PROCESS_SHADOW] = A_BOLD | ColorPair(Black,Blue),
       [PROCESS_TAG] = A_BOLD | ColorPair(Yellow,Blue),
       [PROCESS_MEGABYTES] = ColorPair(Cyan,Blue),
+      [PROCESS_GIGABYTES] = ColorPair(Green,Blue),
       [PROCESS_BASENAME] = A_BOLD | ColorPair(Cyan,Blue),
       [PROCESS_TREE] = ColorPair(Cyan,Blue),
       [PROCESS_R_STATE] = ColorPair(Green,Blue),
@@ -401,6 +431,8 @@ int CRT_colorSchemes[LAST_COLORSCHEME][LAST_COLORELEMENT] = {
       [LOAD] = A_BOLD | ColorPair(White,Blue),
       [HELP_BOLD] = A_BOLD | ColorPair(Cyan,Blue),
       [CLOCK] = ColorPair(White,Blue),
+      [DATE] = ColorPair(White,Blue),
+      [DATETIME] = ColorPair(White,Blue),
       [CHECK_BOX] = ColorPair(Cyan,Blue),
       [CHECK_MARK] = A_BOLD | ColorPair(White,Blue),
       [CHECK_TEXT] = A_NORMAL | ColorPair(White,Blue),
@@ -409,7 +441,7 @@ int CRT_colorSchemes[LAST_COLORSCHEME][LAST_COLORELEMENT] = {
       [CPU_NICE_TEXT] = A_BOLD | ColorPair(Cyan,Blue),
       [CPU_NORMAL] = A_BOLD | ColorPair(Green,Blue),
       [CPU_SYSTEM] = A_BOLD | ColorPair(Red,Blue),
-      [CPU_IOWAIT] = A_BOLD | ColorPair(Blue,Blue),
+      [CPU_IOWAIT] = A_BOLD | ColorPair(Black,Blue),
       [CPU_IRQ] = A_BOLD | ColorPair(Black,Blue),
       [CPU_SOFTIRQ] = ColorPair(Black,Blue),
       [CPU_STEAL] = ColorPair(White,Blue),
@@ -435,18 +467,23 @@ int CRT_colorSchemes[LAST_COLORSCHEME][LAST_COLORELEMENT] = {
       [PANEL_SELECTION_FOCUS] = ColorPair(Black,Cyan),
       [PANEL_SELECTION_FOLLOW] = ColorPair(Black,Yellow),
       [PANEL_SELECTION_UNFOCUS] = ColorPair(Black,White),
-      [FAILED_SEARCH] = ColorPair(Red,Cyan),
+      [FAILED_SEARCH] = ColorPair(Red,Green),
+      [PAUSED] = A_BOLD | ColorPair(Yellow,Green),
       [UPTIME] = ColorPair(Green,Black),
       [BATTERY] = ColorPair(Green,Black),
       [LARGE_NUMBER] = A_BOLD | ColorPair(Red,Black),
       [METER_TEXT] = ColorPair(Cyan,Black),
       [METER_VALUE] = ColorPair(Green,Black),
+      [METER_VALUE_NOTICE] = A_BOLD | ColorPair(Yellow,Black),
+      [METER_VALUE_IOREAD] = ColorPair(Green,Black),
+      [METER_VALUE_IOWRITE] = ColorPair(Blue,Black),
       [LED_COLOR] = ColorPair(Green,Black),
       [TASKS_RUNNING] = A_BOLD | ColorPair(Green,Black),
       [PROCESS] = ColorPair(Cyan,Black),
       [PROCESS_SHADOW] = A_BOLD | ColorPairGrayBlack,
       [PROCESS_TAG] = A_BOLD | ColorPair(Yellow,Black),
       [PROCESS_MEGABYTES] = A_BOLD | ColorPair(Green,Black),
+      [PROCESS_GIGABYTES] = A_BOLD | ColorPair(Yellow,Black),
       [PROCESS_BASENAME] = A_BOLD | ColorPair(Green,Black),
       [PROCESS_TREE] = ColorPair(Cyan,Black),
       [PROCESS_THREAD] = ColorPair(Green,Black),
@@ -503,71 +540,59 @@ int CRT_scrollHAmount = 5;
 
 int CRT_scrollWheelVAmount = 10;
 
-char* CRT_termType;
-
-// TODO move color scheme to Settings, perhaps?
+const char* CRT_termType;
 
 int CRT_colorScheme = 0;
 
-void *backtraceArray[128];
+long CRT_pageSize = -1;
+long CRT_pageSizeKB = -1;
 
+ATTR_NORETURN
 static void CRT_handleSIGTERM(int sgn) {
    (void) sgn;
    CRT_done();
    exit(0);
 }
 
-#if HAVE_SETUID_ENABLED
+#ifdef HAVE_SETUID_ENABLED
 
 static int CRT_euid = -1;
 
 static int CRT_egid = -1;
 
-#define DIE(msg) do { CRT_done(); fprintf(stderr, msg); exit(1); } while(0)
-
 void CRT_dropPrivileges() {
    CRT_egid = getegid();
    CRT_euid = geteuid();
    if (setegid(getgid()) == -1) {
-      DIE("Fatal error: failed dropping group privileges.\n");
+      CRT_fatalError("Fatal error: failed dropping group privileges");
    }
    if (seteuid(getuid()) == -1) {
-      DIE("Fatal error: failed dropping user privileges.\n");
+      CRT_fatalError("Fatal error: failed dropping user privileges");
    }
 }
 
 void CRT_restorePrivileges() {
    if (CRT_egid == -1 || CRT_euid == -1) {
-      DIE("Fatal error: internal inconsistency.\n");
+      CRT_fatalError("Fatal error: internal inconsistency");
    }
    if (setegid(CRT_egid) == -1) {
-      DIE("Fatal error: failed restoring group privileges.\n");
+      CRT_fatalError("Fatal error: failed restoring group privileges");
    }
    if (seteuid(CRT_euid) == -1) {
-      DIE("Fatal error: failed restoring user privileges.\n");
+      CRT_fatalError("Fatal error: failed restoring user privileges");
    }
 }
 
-#else
+#endif /* HAVE_SETUID_ENABLED */
 
-/* Turn setuid operations into NOPs */
-
-#ifndef CRT_dropPrivileges
-#define CRT_dropPrivileges()
-#define CRT_restorePrivileges()
-#endif
-
-#endif
+static struct sigaction old_sig_handler[32];
 
 // TODO: pass an instance of Settings instead.
 
 void CRT_init(int delay, int colorScheme, bool allowUnicode) {
    initscr();
    noecho();
-   CRT_delay = delay;
-   if (CRT_delay == 0) {
-      CRT_delay = 1;
-   }
+   CRT_delay = CLAMP(delay, 1, 255);
    CRT_colors = CRT_colorSchemes[colorScheme];
    CRT_colorScheme = colorScheme;
 
@@ -582,12 +607,8 @@ void CRT_init(int delay, int colorScheme, bool allowUnicode) {
    keypad(stdscr, true);
    mouseinterval(0);
    curs_set(0);
-   if (has_colors()) {
+   if (has_colors())
       start_color();
-      CRT_hasColors = true;
-   } else {
-      CRT_hasColors = false;
-   }
    CRT_termType = getenv("TERM");
    if (String_eq(CRT_termType, "linux"))
       CRT_scrollHAmount = 20;
@@ -613,9 +634,19 @@ void CRT_init(int delay, int colorScheme, bool allowUnicode) {
          define_key(sequence, KEY_ALT('A' + (c - 'a')));
       }
    }
-#ifndef DEBUG
-   signal(11, CRT_handleSIGSEGV);
-#endif
+
+   struct sigaction act;
+   sigemptyset (&act.sa_mask);
+   act.sa_flags = (int)SA_RESETHAND|SA_NODEFER;
+   act.sa_handler = CRT_handleSIGSEGV;
+   sigaction (SIGSEGV, &act, &old_sig_handler[SIGSEGV]);
+   sigaction (SIGFPE, &act, &old_sig_handler[SIGFPE]);
+   sigaction (SIGILL, &act, &old_sig_handler[SIGILL]);
+   sigaction (SIGBUS, &act, &old_sig_handler[SIGBUS]);
+   sigaction (SIGPIPE, &act, &old_sig_handler[SIGPIPE]);
+   sigaction (SIGSYS, &act, &old_sig_handler[SIGSYS]);
+   sigaction (SIGABRT, &act, &old_sig_handler[SIGABRT]);
+
    signal(SIGTERM, CRT_handleSIGTERM);
    signal(SIGQUIT, CRT_handleSIGTERM);
    use_default_colors();
@@ -627,7 +658,7 @@ void CRT_init(int delay, int colorScheme, bool allowUnicode) {
    setlocale(LC_CTYPE, "");
 
 #ifdef HAVE_LIBNCURSESW
-   if (allowUnicode && strcmp(nl_langinfo(CODESET), "UTF-8") == 0)
+   if (allowUnicode && String_eq(nl_langinfo(CODESET), "UTF-8"))
       CRT_utf8 = true;
    else
       CRT_utf8 = false;
@@ -647,6 +678,10 @@ void CRT_init(int delay, int colorScheme, bool allowUnicode) {
    mousemask(BUTTON1_RELEASED, NULL);
 #endif
 
+   CRT_pageSize = sysconf(_SC_PAGESIZE);
+   if (CRT_pageSize == -1)
+      CRT_fatalError("Fatal error: Can not get PAGE_SIZE by sysconf(_SC_PAGESIZE)");
+   CRT_pageSizeKB = CRT_pageSize / 1024;
 }
 
 void CRT_done() {
@@ -701,4 +736,93 @@ void CRT_setColors(int colorScheme) {
    init_pair(ColorIndexGrayBlack, grayBlackFg, grayBlackBg);
 
    CRT_colors = CRT_colorSchemes[colorScheme];
+}
+
+void CRT_handleSIGSEGV(int signal) {
+   CRT_done();
+
+   fprintf(stderr, "\n\n"
+      "FATAL PROGRAM ERROR DETECTED\n"
+      "============================\n"
+      "Please check at https://htop.dev/issues whether this issue has already been reported.\n"
+      "If no similar issue has been reported before, please create a new issue with the following information:\n"
+      "\n"
+      "- Your htop version (htop --version)\n"
+      "- Your OS and kernel version (uname -a)\n"
+      "- Your distribution and release (lsb_release -a)\n"
+      "- Likely steps to reproduce (How did it happened?)\n"
+#ifdef HAVE_EXECINFO_H
+      "- Backtrace of the issue (see below)\n"
+#endif
+      "\n"
+   );
+
+   const char* signal_str = strsignal(signal);
+   if(!signal_str) {
+      signal_str = "unknown reason";
+   }
+   fprintf(stderr,
+      "Error information:\n"
+      "------------------\n"
+      "A signal %d (%s) was received.\n"
+      "\n",
+      signal, signal_str
+   );
+
+#ifdef HAVE_EXECINFO_H
+   fprintf(stderr,
+      "Backtrace information:\n"
+      "----------------------\n"
+      "The following function calls were active when the issue was detected:\n"
+      "---\n"
+   );
+
+   void *backtraceArray[256];
+
+   size_t size = backtrace(backtraceArray, ARRAYSIZE(backtraceArray));
+   backtrace_symbols_fd(backtraceArray, size, 2);
+   fprintf(stderr,
+      "---\n"
+      "\n"
+      "To make the above information more practical to work with,\n"
+      "you should provide a disassembly of your binary.\n"
+      "This can usually be done by running the following command:\n"
+      "\n"
+#ifdef HTOP_DARWIN
+      "   otool -tvV `which htop` > ~/htop.otool\n"
+#else
+      "   objdump -d -S -w `which htop` > ~/htop.objdump\n"
+#endif
+      "\n"
+      "Please include the generated file in your report.\n"
+      "\n"
+   );
+#endif
+
+   fprintf(stderr,
+      "Running this program with debug symbols or inside a debugger may provide further insights.\n"
+      "\n"
+      "Thank you for helping to improve htop!\n"
+      "\n"
+      "htop " VERSION " aborting.\n"
+      "\n"
+   );
+
+   /* Call old sigsegv handler; may be default exit or third party one (e.g. ASAN) */
+   if(sigaction (signal, &old_sig_handler[signal], NULL) < 0) {
+      /* This avoids an infinite loop in case the handler could not be reset. */
+      fprintf(stderr,
+         "!!! Chained handler could not be restored. Forcing exit.\n"
+      );
+      _exit(1);
+   }
+
+   /* Trigger the previous signal handler. */
+   raise(signal);
+
+   // Always terminate, even if installed handler returns
+   fprintf(stderr,
+      "!!! Chained handler did not exit. Forcing exit.\n"
+   );
+   _exit(1);
 }

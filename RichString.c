@@ -1,22 +1,18 @@
 /*
 htop - RichString.c
 (C) 2004,2011 Hisham H. Muhammad
-Released under the GNU GPL, see the COPYING file
+Released under the GNU GPLv2, see the COPYING file
 in the source distribution for its full text.
 */
 
 #include "RichString.h"
-#include "XAlloc.h"
 
 #include <stdlib.h>
 #include <string.h>
 
-#define RICHSTRING_MAXLEN 350
+#include "Macros.h"
+#include "XUtils.h"
 
-
-#ifndef CLAMP
-#define CLAMP(x,low,high) (((x)>(high))?(high):(((x)<(low))?(low):(x)))
-#endif
 
 #define charBytes(n) (sizeof(CharType) * (n))
 
@@ -76,7 +72,7 @@ int RichString_findChar(RichString* this, char c, int start) {
    return -1;
 }
 
-#else
+#else /* HAVE_LIBNCURSESW */
 
 static inline void RichString_writeFrom(RichString* this, int attrs, const char* data_c, int from, int len) {
    int newLen = from + len;
@@ -105,7 +101,7 @@ int RichString_findChar(RichString* this, char c, int start) {
    return -1;
 }
 
-#endif
+#endif /* HAVE_LIBNCURSESW */
 
 void RichString_prune(RichString* this) {
    if (this->chlen > RICHSTRING_MAXLEN)
