@@ -25,7 +25,7 @@ const ProcessClass SolarisProcess_class = {
       .delete = Process_delete,
       .compare = SolarisProcess_compare
    },
-   .writeField = (Process_WriteField) SolarisProcess_writeField,
+   .writeField = SolarisProcess_writeField,
 };
 
 ProcessFieldData Process_fields[] = {
@@ -79,11 +79,11 @@ ProcessPidColumn Process_pidColumns[] = {
    { .id = 0, .label = NULL },
 };
 
-SolarisProcess* SolarisProcess_new(Settings* settings) {
+Process* SolarisProcess_new(const Settings* settings) {
    SolarisProcess* this = xCalloc(1, sizeof(SolarisProcess));
    Object_setClass(this, Class(SolarisProcess));
    Process_init(&this->super, settings);
-   return this;
+   return &this->super;
 }
 
 void Process_delete(Object* cast) {
@@ -93,8 +93,8 @@ void Process_delete(Object* cast) {
    free(sp);
 }
 
-void SolarisProcess_writeField(Process* this, RichString* str, ProcessField field) {
-   SolarisProcess* sp = (SolarisProcess*) this;
+void SolarisProcess_writeField(const Process* this, RichString* str, ProcessField field) {
+   const SolarisProcess* sp = (const SolarisProcess*) this;
    char buffer[256]; buffer[255] = '\0';
    int attr = CRT_colors[DEFAULT_COLOR];
    int n = sizeof(buffer) - 1;

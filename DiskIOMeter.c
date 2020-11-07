@@ -24,6 +24,7 @@ static const int DiskIOMeter_attributes[] = {
    METER_VALUE_IOWRITE,
 };
 
+static bool hasData = false;
 static unsigned long int cached_read_diff = 0;
 static unsigned long int cached_write_diff = 0;
 static double cached_utilisation_diff = 0.0;
@@ -37,22 +38,41 @@ static void DiskIOMeter_updateValues(Meter* this, char* buffer, int len) {
    struct timeval tv;
    gettimeofday(&tv, NULL);
    unsigned long long int timeInMilliSeconds = (unsigned long long int)tv.tv_sec * 1000 + (unsigned long long int)tv.tv_usec / 1000;
+   unsigned long long int passedTimeInMs = timeInMilliSeconds - cached_last_update;
 
    /* update only every 500ms */
-   if (timeInMilliSeconds - cached_last_update > 500) {
-      unsigned long int bytesRead, bytesWrite, msTimeSpend;
-
-      Platform_getDiskIO(&bytesRead, &bytesWrite, &msTimeSpend);
-
-      cached_read_diff = (bytesRead - cached_read_total) / 1024; /* Meter_humanUnit() expects unit in kilo */
-      cached_read_total = bytesRead;
-
-      cached_write_diff = (bytesWrite - cached_write_total) / 1024; /* Meter_humanUnit() expects unit in kilo */
-      cached_write_total = bytesWrite;
-
-      cached_utilisation_diff = 100 * (double)(msTimeSpend - cached_msTimeSpend_total) / (timeInMilliSeconds - cached_last_update);
+   if (passedTimeInMs > 500) {
       cached_last_update = timeInMilliSeconds;
-      cached_msTimeSpend_total = msTimeSpend;
+
+      DiskIOData data;
+
+      hasData = Platform_getDiskIO(&data);
+      if (!hasData) {
+         this->values[0] = 0;
+         xSnprintf(buffer, len, "no data");
+         return;
+      }
+
+      if (data.totalBytesRead > cached_read_total) {
+         cached_read_diff = (data.totalBytesRead - cached_read_total) / 1024; /* Meter_humanUnit() expects unit in kilo */
+      } else {
+         cached_read_diff = 0;
+      }
+      cached_read_total = data.totalBytesRead;
+
+      if (data.totalBytesWritten > cached_write_total) {
+         cached_write_diff = (data.totalBytesWritten - cached_write_total) / 1024; /* Meter_humanUnit() expects unit in kilo */
+      } else {
+         cached_write_diff = 0;
+      }
+      cached_write_total = data.totalBytesWritten;
+
+      if (data.totalMsTimeSpend > cached_msTimeSpend_total) {
+         cached_utilisation_diff = 100 * (double)(data.totalMsTimeSpend - cached_msTimeSpend_total) / passedTimeInMs;
+      } else {
+         cached_utilisation_diff = 0.0;
+      }
+      cached_msTimeSpend_total = data.totalMsTimeSpend;
    }
 
    this->values[0] = cached_utilisation_diff;
@@ -65,6 +85,11 @@ static void DiskIOMeter_updateValues(Meter* this, char* buffer, int len) {
 }
 
 static void DIskIOMeter_display(ATTR_UNUSED const Object* cast, RichString* out) {
+   if (!hasData) {
+      RichString_write(out, CRT_colors[METER_VALUE_ERROR], "no data");
+      return;
+   }
+
    char buffer[16];
 
    int color = cached_utilisation_diff > 40.0 ? METER_VALUE_NOTICE : METER_VALUE;

@@ -65,8 +65,9 @@ int Vector_count(const Vector* this) {
 }
 
 Object* Vector_get(Vector* this, int idx) {
-   assert(idx < this->items);
+   assert(idx >= 0 && idx < this->items);
    assert(Vector_isConsistent(this));
+   assert(this->array[idx]);
    return this->array[idx];
 }
 
@@ -161,10 +162,10 @@ static void insertionSort(Object** array, int left, int right, Object_Compare co
    }
 }
 
-void Vector_quickSort(Vector* this) {
-   assert(this->type->compare);
+void Vector_quickSortCustomCompare(Vector* this, Object_Compare compare) {
+   assert(compare);
    assert(Vector_isConsistent(this));
-   quickSort(this->array, 0, this->items - 1, this->type->compare);
+   quickSort(this->array, 0, this->items - 1, compare);
    assert(Vector_isConsistent(this));
 }
 
@@ -264,9 +265,7 @@ void Vector_set(Vector* this, int idx, void* data_) {
       if (this->owner) {
          Object* removed = this->array[idx];
          assert (removed != NULL);
-         if (this->owner) {
-            Object_delete(removed);
-         }
+         Object_delete(removed);
       }
    }
    this->array[idx] = data;

@@ -52,6 +52,7 @@ typedef enum ColorElements_ {
    LARGE_NUMBER,
    METER_TEXT,
    METER_VALUE,
+   METER_VALUE_ERROR,
    METER_VALUE_NOTICE,
    METER_VALUE_IOREAD,
    METER_VALUE_IOWRITE,
@@ -112,6 +113,7 @@ typedef enum ColorElements_ {
    ZFS_OTHER,
    ZFS_COMPRESSED,
    ZFS_RATIO,
+   ZRAM,
    LAST_COLORELEMENT
 } ColorElements;
 

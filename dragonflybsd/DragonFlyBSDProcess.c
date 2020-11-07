@@ -25,7 +25,7 @@ const ProcessClass DragonFlyBSDProcess_class = {
       .delete = Process_delete,
       .compare = DragonFlyBSDProcess_compare
    },
-   .writeField = (Process_WriteField) DragonFlyBSDProcess_writeField,
+   .writeField = DragonFlyBSDProcess_writeField,
 };
 
 ProcessFieldData Process_fields[] = {
@@ -69,11 +69,11 @@ ProcessPidColumn Process_pidColumns[] = {
    { .id = 0, .label = NULL },
 };
 
-DragonFlyBSDProcess* DragonFlyBSDProcess_new(Settings* settings) {
+Process* DragonFlyBSDProcess_new(const Settings* settings) {
    DragonFlyBSDProcess* this = xCalloc(1, sizeof(DragonFlyBSDProcess));
    Object_setClass(this, Class(DragonFlyBSDProcess));
    Process_init(&this->super, settings);
-   return this;
+   return &this->super;
 }
 
 void Process_delete(Object* cast) {
@@ -83,8 +83,8 @@ void Process_delete(Object* cast) {
    free(this);
 }
 
-void DragonFlyBSDProcess_writeField(Process* this, RichString* str, ProcessField field) {
-   DragonFlyBSDProcess* fp = (DragonFlyBSDProcess*) this;
+void DragonFlyBSDProcess_writeField(const Process* this, RichString* str, ProcessField field) {
+   const DragonFlyBSDProcess* fp = (const DragonFlyBSDProcess*) this;
    char buffer[256]; buffer[255] = '\0';
    int attr = CRT_colors[DEFAULT_COLOR];
    int n = sizeof(buffer) - 1;

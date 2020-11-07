@@ -42,7 +42,7 @@ typedef struct MeterClass_ {
    const char* const uiName;
    const char* const caption;
    const char* const description;
-   const char maxItems;
+   const uint8_t maxItems;
 } MeterClass;
 
 #define As_Meter(this_)                ((const MeterClass*)((this_)->super.klass))
@@ -74,8 +74,8 @@ struct Meter_ {
    int param;
    GraphData* drawData;
    int h;
-   ProcessList* pl;
-   char curItems;
+   const ProcessList* pl;
+   uint8_t curItems;
    double* values;
    double total;
    void* meterData;
@@ -98,7 +98,7 @@ typedef enum {
 
 extern const MeterClass Meter_class;
 
-Meter* Meter_new(ProcessList* pl, int param, const MeterClass* type);
+Meter* Meter_new(const ProcessList* pl, int param, const MeterClass* type);
 
 int Meter_humanUnit(char* buffer, unsigned long int value, int size);
 

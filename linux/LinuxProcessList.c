@@ -479,55 +479,43 @@ static bool LinuxProcessList_readSmapsFile(LinuxProcess* process, const char* di
    //http://elixir.free-electrons.com/linux/v4.10/source/fs/proc/task_mmu.c#L719
    //kernel will return data in chunks of size PAGE_SIZE or less.
 
-   char buffer[CRT_pageSize];// 4k
-   char *start,*end;
-   ssize_t nread=0;
-   int tmp=0;
+   char buffer[256];
+
    if(haveSmapsRollup) {// only available in Linux 4.14+
       xSnprintf(buffer, sizeof(buffer), "%s/%s/smaps_rollup", dirname, name);
    } else {
       xSnprintf(buffer, sizeof(buffer), "%s/%s/smaps", dirname, name);
    }
-   int fd = open(buffer, O_RDONLY);
-   if (fd == -1)
+
+   FILE* f = fopen(buffer, "r");
+   if (!f)
       return false;
 
    process->m_pss   = 0;
    process->m_swap  = 0;
    process->m_psswp = 0;
 
-   while ( ( nread =  read(fd,buffer, sizeof(buffer)) ) > 0 ){
-        start = (char *)&buffer;
-        end   = start + nread;
-        do{//parse 4k block
+   while (fgets(buffer, sizeof(buffer), f)) {
+      if(!strchr(buffer, '\n')) {
+         // Partial line, skip to end of this line
+         while(fgets(buffer, sizeof(buffer), f)) {
+            if(strchr(buffer, '\n')) {
+               break;
+            }
+         }
+         continue;
+      }
 
-            if( (tmp = (end - start)) > 0 &&
-                (start = memmem(start,tmp,"\nPss:",5)) != NULL )
-            {
-              process->m_pss += strtol(start+5, &start, 10);
-              start += 3;//now we must be at the end of line "Pss:                   0 kB"
-            }else
-              break; //read next 4k block
+      if (String_startsWith(buffer, "Pss:")) {
+         process->m_pss += strtol(buffer + 4, NULL, 10);
+      } else if (String_startsWith(buffer, "Swap:")) {
+         process->m_swap += strtol(buffer + 5, NULL, 10);
+      } else if (String_startsWith(buffer, "SwapPss:")) {
+         process->m_psswp += strtol(buffer + 8, NULL, 10);
+      }
+   }
 
-            if( (tmp = (end - start)) > 0 &&
-                (start = memmem(start,tmp,"\nSwap:",6)) != NULL )
-            {
-              process->m_swap += strtol(start+6, &start, 10);
-              start += 3;
-            }else
-              break;
-
-            if( (tmp = (end - start)) > 0 &&
-                (start = memmem(start,tmp,"\nSwapPss:",9)) != NULL )
-            {
-              process->m_psswp += strtol(start+9, &start, 10);
-              start += 3;
-            }else
-              break;
-
-        }while(1);
-   }//while read
-   close(fd);
+   fclose(f);
    return true;
 }
 
@@ -790,8 +778,8 @@ static int handleNetlinkMsg(struct nl_msg *nlmsg, void *linuxProcess) {
       assert(lp->super.pid == (pid_t)stats.ac_pid);
 
       timeDelta = (stats.ac_etime*1000 - lp->delay_read_time);
-      #define BOUNDS(x) isnan(x) ? 0.0 : (x > 100) ? 100.0 : x;
-      #define DELTAPERC(x,y) BOUNDS((float) (x - y) / timeDelta * 100);
+      #define BOUNDS(x) isnan(x) ? 0.0 : ((x) > 100) ? 100.0 : (x);
+      #define DELTAPERC(x,y) BOUNDS((float) ((x) - (y)) / timeDelta * 100);
       lp->cpu_delay_percent = DELTAPERC(stats.cpu_delay_total, lp->cpu_delay_total);
       lp->blkio_delay_percent = DELTAPERC(stats.blkio_delay_total, lp->blkio_delay_total);
       lp->swapin_delay_percent = DELTAPERC(stats.swapin_delay_total, lp->swapin_delay_total);
@@ -936,7 +924,7 @@ static bool LinuxProcessList_recurseProcTree(LinuxProcessList* this, const char*
    ProcessList* pl = (ProcessList*) this;
    DIR* dir;
    struct dirent* entry;
-   Settings* settings = pl->settings;
+   const Settings* settings = pl->settings;
 
    #ifdef HAVE_TASKSTATS
    unsigned long long now = tv.tv_sec*1000LL+tv.tv_usec/1000LL;
@@ -971,7 +959,7 @@ static bool LinuxProcessList_recurseProcTree(LinuxProcessList* this, const char*
          continue;
 
       bool preExisting = false;
-      Process* proc = ProcessList_getProcess(pl, pid, &preExisting, (Process_New) LinuxProcess_new);
+      Process* proc = ProcessList_getProcess(pl, pid, &preExisting, LinuxProcess_new);
       proc->tgid = parent ? parent->pid : pid;
 
       LinuxProcess* lp = (LinuxProcess*) proc;
@@ -1160,6 +1148,54 @@ static inline void LinuxProcessList_scanMemoryInfo(ProcessList* this) {
    fclose(file);
 }
 
+static inline void LinuxProcessList_scanZramInfo(LinuxProcessList* this) {
+   unsigned long long int totalZram = 0;
+   unsigned long long int usedZramComp = 0;
+   unsigned long long int usedZramOrig = 0;
+
+   char mm_stat[34];
+   char disksize[34];
+
+   unsigned int i = 0;
+   for(;;) {
+      xSnprintf(mm_stat, sizeof(mm_stat), "/sys/block/zram%u/mm_stat", i);
+      xSnprintf(disksize, sizeof(disksize), "/sys/block/zram%u/disksize", i);
+      i++;
+      FILE* disksize_file = fopen(disksize, "r");
+      FILE* mm_stat_file = fopen(mm_stat, "r");
+      if (disksize_file == NULL || mm_stat_file == NULL) {
+         if (disksize_file) {
+            fclose(disksize_file);
+         }
+         if (mm_stat_file) {
+            fclose(mm_stat_file);
+         }
+         break;
+      }
+      unsigned long long int size = 0;
+      unsigned long long int orig_data_size = 0;
+      unsigned long long int compr_data_size = 0;
+
+      if (!fscanf(disksize_file, "%llu\n", &size) ||
+          !fscanf(mm_stat_file, "    %llu       %llu", &orig_data_size, &compr_data_size)) {
+         fclose(disksize_file);
+         fclose(mm_stat_file);
+         break;
+      }
+
+      totalZram += size;
+      usedZramComp += compr_data_size;
+      usedZramOrig += orig_data_size;
+
+      fclose(disksize_file);
+      fclose(mm_stat_file);
+   }
+
+   this->zram.totalZram = totalZram / 1024;
+   this->zram.usedZramComp = usedZramComp / 1024;
+   this->zram.usedZramOrig = usedZramOrig / 1024;
+}
+
 static inline void LinuxProcessList_scanZfsArcstats(LinuxProcessList* lpl) {
    unsigned long long int dbufSize = 0;
    unsigned long long int dnodeSize = 0;
@@ -1173,7 +1209,7 @@ static inline void LinuxProcessList_scanZfsArcstats(LinuxProcessList* lpl) {
    char buffer[128];
    while (fgets(buffer, 128, file)) {
       #define tryRead(label, variable) do { if (String_startsWith(buffer, label) && sscanf(buffer + strlen(label), " %*2u %32llu", variable)) { break; } } while(0)
-      #define tryReadFlag(label, variable, flag) do { if (String_startsWith(buffer, label) && sscanf(buffer + strlen(label), " %*2u %32llu", variable)) { flag = 1; break; } else { flag = 0; } } while(0)
+      #define tryReadFlag(label, variable, flag) do { if (String_startsWith(buffer, label) && sscanf(buffer + strlen(label), " %*2u %32llu", variable)) { (flag) = 1; break; } else { (flag) = 0; } } while(0)
       switch (buffer[0]) {
       case 'c':
          tryRead("c_max", &lpl->zfs.max);
@@ -1260,7 +1296,7 @@ static inline double LinuxProcessList_scanCPUTime(LinuxProcessList* this) {
       // Since we do a subtraction (usertime - guest) and cputime64_to_clock_t()
       // used in /proc/stat rounds down numbers, it can lead to a case where the
       // integer overflow.
-      #define WRAP_SUBTRACT(a,b) (a > b) ? a - b : 0
+      #define WRAP_SUBTRACT(a,b) (((a) > (b)) ? (a) - (b) : 0)
       cpuData->userPeriod = WRAP_SUBTRACT(usertime, cpuData->userTime);
       cpuData->nicePeriod = WRAP_SUBTRACT(nicetime, cpuData->niceTime);
       cpuData->systemPeriod = WRAP_SUBTRACT(systemtime, cpuData->systemTime);
@@ -1388,8 +1424,8 @@ void ProcessList_goThroughEntries(ProcessList* super, bool pauseProcessUpdate) {
 
    LinuxProcessList_scanMemoryInfo(super);
    LinuxProcessList_scanZfsArcstats(this);
-
    LinuxProcessList_updateCPUcount(this);
+   LinuxProcessList_scanZramInfo(this);
 
    double period = LinuxProcessList_scanCPUTime(this);
 

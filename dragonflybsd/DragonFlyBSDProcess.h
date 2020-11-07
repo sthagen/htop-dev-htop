@@ -33,11 +33,11 @@ extern ProcessFieldData Process_fields[];
 
 extern ProcessPidColumn Process_pidColumns[];
 
-DragonFlyBSDProcess* DragonFlyBSDProcess_new(Settings* settings);
+Process* DragonFlyBSDProcess_new(const Settings* settings);
 
 void Process_delete(Object* cast);
 
-void DragonFlyBSDProcess_writeField(Process* this, RichString* str, ProcessField field);
+void DragonFlyBSDProcess_writeField(const Process* this, RichString* str, ProcessField field);
 
 long DragonFlyBSDProcess_compare(const void* v1, const void* v2);
 

@@ -17,15 +17,7 @@ in the source distribution for its full text.
 #include <sys/syscall.h>
 
 
-const ProcessClass FreeBSDProcess_class = {
-   .super = {
-      .extends = Class(Process),
-      .display = Process_display,
-      .delete = Process_delete,
-      .compare = FreeBSDProcess_compare
-   },
-   .writeField = (Process_WriteField) FreeBSDProcess_writeField,
-};
+const char* const nodevStr = "nodev";
 
 ProcessFieldData Process_fields[] = {
    [0] = { .name = "", .title = NULL, .description = NULL, .flags = 0, },
@@ -35,7 +27,7 @@ ProcessFieldData Process_fields[] = {
    [PPID] = { .name = "PPID", .title = "   PPID ", .description = "Parent process ID", .flags = 0, },
    [PGRP] = { .name = "PGRP", .title = "   PGRP ", .description = "Process group ID", .flags = 0, },
    [SESSION] = { .name = "SESSION", .title = "    SID ", .description = "Process's session ID", .flags = 0, },
-   [TTY_NR] = { .name = "TTY_NR", .title = "    TTY ", .description = "Controlling terminal", .flags = 0, },
+   [TTY_NR] = { .name = "TTY_NR", .title = "    TTY ", .description = "Controlling terminal", .flags = PROCESS_FLAG_FREEBSD_TTY, },
    [TPGID] = { .name = "TPGID", .title = "  TPGID ", .description = "Process ID of the fg process group of the controlling terminal", .flags = 0, },
    [MINFLT] = { .name = "MINFLT", .title = "     MINFLT ", .description = "Number of minor faults which have not required loading a memory page from disk", .flags = 0, },
    [MAJFLT] = { .name = "MAJFLT", .title = "     MAJFLT ", .description = "Number of major faults which have required loading a memory page from disk", .flags = 0, },
@@ -69,11 +61,11 @@ ProcessPidColumn Process_pidColumns[] = {
    { .id = 0, .label = NULL },
 };
 
-FreeBSDProcess* FreeBSDProcess_new(Settings* settings) {
+Process* FreeBSDProcess_new(const Settings* settings) {
    FreeBSDProcess* this = xCalloc(1, sizeof(FreeBSDProcess));
    Object_setClass(this, Class(FreeBSDProcess));
    Process_init(&this->super, settings);
-   return this;
+   return &this->super;
 }
 
 void Process_delete(Object* cast) {
@@ -83,8 +75,8 @@ void Process_delete(Object* cast) {
    free(this);
 }
 
-void FreeBSDProcess_writeField(Process* this, RichString* str, ProcessField field) {
-   FreeBSDProcess* fp = (FreeBSDProcess*) this;
+static void FreeBSDProcess_writeField(const Process* this, RichString* str, ProcessField field) {
+   const FreeBSDProcess* fp = (const FreeBSDProcess*) this;
    char buffer[256]; buffer[255] = '\0';
    int attr = CRT_colors[DEFAULT_COLOR];
    int n = sizeof(buffer) - 1;
@@ -99,6 +91,16 @@ void FreeBSDProcess_writeField(Process* this, RichString* str, ProcessField fiel
       }
       break;
    }
+   case TTY_NR:
+      if (fp->ttyPath) {
+         if (fp->ttyPath == nodevStr)
+            attr = CRT_colors[PROCESS_SHADOW];
+         xSnprintf(buffer, n, "%-8s", fp->ttyPath);
+      } else {
+         attr = CRT_colors[PROCESS_SHADOW];
+         xSnprintf(buffer, n, "?        ");
+      }
+      break;
    default:
       Process_writeField(this, str, field);
       return;
@@ -106,7 +108,7 @@ void FreeBSDProcess_writeField(Process* this, RichString* str, ProcessField fiel
    RichString_append(str, attr, buffer);
 }
 
-long FreeBSDProcess_compare(const void* v1, const void* v2) {
+static long FreeBSDProcess_compare(const void* v1, const void* v2) {
    const FreeBSDProcess *p1, *p2;
    const Settings *settings = ((const Process*)v1)->settings;
    if (settings->direction == 1) {
@@ -122,6 +124,8 @@ long FreeBSDProcess_compare(const void* v1, const void* v2) {
       return (p1->jid - p2->jid);
    case JAIL:
       return strcmp(p1->jname ? p1->jname : "", p2->jname ? p2->jname : "");
+   case TTY_NR:
+      return strcmp(p1->ttyPath ? p1->ttyPath : "", p2->ttyPath ? p2->ttyPath : "");
    default:
       return Process_compare(v1, v2);
    }
@@ -133,5 +137,15 @@ bool Process_isThread(const Process* this) {
    if (fp->kernel == 1 )
       return 1;
    else
-      return (Process_isUserlandThread(this));
+      return Process_isUserlandThread(this);
 }
+
+const ProcessClass FreeBSDProcess_class = {
+   .super = {
+      .extends = Class(Process),
+      .display = Process_display,
+      .delete = Process_delete,
+      .compare = FreeBSDProcess_compare
+   },
+   .writeField = FreeBSDProcess_writeField,
+};

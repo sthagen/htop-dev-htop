@@ -26,24 +26,31 @@ AC_USE_SYSTEM_EXTENSIONS
 case "$target_os" in
 linux*|gnu*)
    my_htop_platform=linux
+   AC_DEFINE([HTOP_LINUX], [], [Building for Linux])
    ;;
 freebsd*|kfreebsd*)
    my_htop_platform=freebsd
+   AC_DEFINE([HTOP_FREEBSD], [], [Building for FreeBSD])
    ;;
 openbsd*)
    my_htop_platform=openbsd
+   AC_DEFINE([HTOP_OPENBSD], [], [Building for OpenBSD])
    ;;
 dragonfly*)
    my_htop_platform=dragonflybsd
+   AC_DEFINE([HTOP_DRAGONFLYBSD], [], [Building for DragonFlyBSD])
    ;;
 darwin*)
    my_htop_platform=darwin
+   AC_DEFINE([HTOP_DARWIN], [], [Building for Darwin])
    ;;
 solaris*)
    my_htop_platform=solaris
+   AC_DEFINE([HTOP_SOLARIS], [], [Building for Solaris])
    ;;
 *)
    my_htop_platform=unsupported
+   AC_DEFINE([HTOP_UNSUPPORTED], [], [Building for an unsupported platform])
    ;;
 esac
 
@@ -81,7 +88,7 @@ AC_TYPE_UID_T
 # ----------------------------------------------------------------------
 AC_FUNC_CLOSEDIR_VOID
 AC_FUNC_STAT
-AC_CHECK_FUNCS([memmove strncasecmp strstr strdup])
+AC_CHECK_FUNCS([fstatat memmove strncasecmp strstr strdup])
 
 save_cflags="${CFLAGS}"
 CFLAGS="${CFLAGS} -std=c99"
@@ -94,6 +101,9 @@ CFLAGS="$save_cflags"
 
 # Add -lexecinfo if needed
 AC_SEARCH_LIBS([backtrace], [execinfo])
+
+# Add -ldevstat if needed
+AC_SEARCH_LIBS([devstat_checkversion], [devstat])
 
 # Checks for features and flags.
 # ----------------------------------------------------------------------

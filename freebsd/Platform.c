@@ -6,33 +6,36 @@ in the source distribution for its full text.
 */
 
 #include "Platform.h"
-#include "Macros.h"
-#include "Meter.h"
+
+#include <devstat.h>
+#include <math.h>
+#include <time.h>
+#include <net/if.h>
+#include <net/if_mib.h>
+#include <sys/resource.h>
+#include <sys/sysctl.h>
+#include <sys/time.h>
+#include <sys/types.h>
+#include <vm/vm_param.h>
+
 #include "CPUMeter.h"
-#include "MemoryMeter.h"
-#include "SwapMeter.h"
-#include "TasksMeter.h"
-#include "LoadAverageMeter.h"
-#include "UptimeMeter.h"
 #include "ClockMeter.h"
 #include "DateMeter.h"
 #include "DateTimeMeter.h"
-#include "HostnameMeter.h"
-#include "NetworkIOMeter.h"
-#include "zfs/ZfsArcMeter.h"
-#include "zfs/ZfsCompressedArcMeter.h"
+#include "DiskIOMeter.h"
 #include "FreeBSDProcess.h"
 #include "FreeBSDProcessList.h"
-
-#include <net/if.h>
-#include <net/if_mib.h>
-#include <sys/types.h>
-#include <sys/sysctl.h>
-#include <sys/time.h>
-#include <sys/resource.h>
-#include <vm/vm_param.h>
-#include <time.h>
-#include <math.h>
+#include "HostnameMeter.h"
+#include "LoadAverageMeter.h"
+#include "Macros.h"
+#include "MemoryMeter.h"
+#include "Meter.h"
+#include "NetworkIOMeter.h"
+#include "SwapMeter.h"
+#include "TasksMeter.h"
+#include "UptimeMeter.h"
+#include "zfs/ZfsArcMeter.h"
+#include "zfs/ZfsCompressedArcMeter.h"
 
 
 ProcessField Platform_defaultFields[] = { PID, USER, PRIORITY, NICE, M_SIZE, M_RESIDENT, STATE, PERCENT_CPU, PERCENT_MEM, TIME, COMM, 0 };
@@ -110,6 +113,7 @@ const MeterClass* const Platform_meterTypes[] = {
    &BlankMeter_class,
    &ZfsArcMeter_class,
    &ZfsCompressedArcMeter_class,
+   &DiskIOMeter_class,
    &NetworkIOMeter_class,
    NULL
 };
@@ -156,9 +160,9 @@ int Platform_getMaxPid() {
 }
 
 double Platform_setCPUValues(Meter* this, int cpu) {
-   FreeBSDProcessList* fpl = (FreeBSDProcessList*) this->pl;
+   const FreeBSDProcessList* fpl = (const FreeBSDProcessList*) this->pl;
    int cpus = this->pl->cpuCount;
-   CPUData* cpuData;
+   const CPUData* cpuData;
 
    if (cpus == 1) {
      // single CPU box has everything in fpl->cpus[0]
@@ -184,7 +188,6 @@ double Platform_setCPUValues(Meter* this, int cpu) {
    }
 
    percent = CLAMP(percent, 0.0, 100.0);
-   if (isnan(percent)) percent = 0.0;
 
    v[CPU_METER_FREQUENCY] = NAN;
 
@@ -193,7 +196,7 @@ double Platform_setCPUValues(Meter* this, int cpu) {
 
 void Platform_setMemoryValues(Meter* this) {
    // TODO
-   ProcessList* pl = (ProcessList*) this->pl;
+   const ProcessList* pl = this->pl;
 
    this->total = pl->totalMem;
    this->values[0] = pl->usedMem;
@@ -202,35 +205,85 @@ void Platform_setMemoryValues(Meter* this) {
 }
 
 void Platform_setSwapValues(Meter* this) {
-   ProcessList* pl = (ProcessList*) this->pl;
+   const ProcessList* pl = this->pl;
    this->total = pl->totalSwap;
    this->values[0] = pl->usedSwap;
 }
 
 void Platform_setZfsArcValues(Meter* this) {
-   FreeBSDProcessList* fpl = (FreeBSDProcessList*) this->pl;
+   const FreeBSDProcessList* fpl = (const FreeBSDProcessList*) this->pl;
 
    ZfsArcMeter_readStats(this, &(fpl->zfs));
 }
 
 void Platform_setZfsCompressedArcValues(Meter* this) {
-   FreeBSDProcessList* fpl = (FreeBSDProcessList*) this->pl;
+   const FreeBSDProcessList* fpl = (const FreeBSDProcessList*) this->pl;
 
    ZfsCompressedArcMeter_readStats(this, &(fpl->zfs));
 }
 
 char* Platform_getProcessEnv(pid_t pid) {
-   (void) pid;
-   // TODO
-   return NULL;
+   int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_ENV, pid };
+
+   size_t capacity = ARG_MAX;
+   char* env = xMalloc(capacity);
+
+   int err = sysctl(mib, 4, env, &capacity, NULL, 0);
+   if (err) {
+      free(env);
+      return NULL;
+   }
+
+   if (env[capacity-1] || env[capacity-2]) {
+      env = xRealloc(env, capacity+2);
+      env[capacity] = 0;
+      env[capacity+1] = 0;
+   }
+
+   return env;
 }
 
-void Platform_getDiskIO(unsigned long int *bytesRead, unsigned long int *bytesWrite, unsigned long int *msTimeSpend) {
-   // TODO
-   *bytesRead = *bytesWrite = *msTimeSpend = 0;
+bool Platform_getDiskIO(DiskIOData* data) {
+
+   if (devstat_checkversion(NULL) < 0)
+      return false;
+
+   struct devinfo info = { 0 };
+   struct statinfo current = { .dinfo = &info };
+
+   // get number of devices
+   if (devstat_getdevs(NULL, &current) < 0)
+      return false;
+
+   int count = current.dinfo->numdevs;
+
+   unsigned long int bytesReadSum = 0, bytesWriteSum = 0, timeSpendSum = 0;
+
+   // get data
+   for (int i = 0; i < count; i++) {
+      uint64_t bytes_read, bytes_write;
+      long double busy_time;
+
+      devstat_compute_statistics(&current.dinfo->devices[i],
+                                 NULL,
+                                 1.0,
+                                 DSM_TOTAL_BYTES_READ, &bytes_read,
+                                 DSM_TOTAL_BYTES_WRITE, &bytes_write,
+                                 DSM_TOTAL_BUSY_TIME, &busy_time,
+                                 DSM_NONE);
+
+      bytesReadSum += bytes_read;
+      bytesWriteSum += bytes_write;
+      timeSpendSum += 1000 * busy_time;
+   }
+
+   data->totalBytesRead = bytesReadSum;
+   data->totalBytesWritten = bytesWriteSum;
+   data->totalMsTimeSpend = timeSpendSum;
+   return true;
 }
 
-void Platform_getNetworkIO(unsigned long int *bytesReceived,
+bool Platform_getNetworkIO(unsigned long int *bytesReceived,
                            unsigned long int *packetsReceived,
                            unsigned long int *bytesTransmitted,
                            unsigned long int *packetsTransmitted) {
@@ -242,13 +295,9 @@ void Platform_getNetworkIO(unsigned long int *bytesReceived,
    const int countMib[] = { CTL_NET, PF_LINK, NETLINK_GENERIC, IFMIB_SYSTEM, IFMIB_IFCOUNT };
 
    r = sysctl(countMib, ARRAYSIZE(countMib), &count, &countLen, NULL, 0);
-   if (r < 0) {
-      *bytesReceived = 0;
-      *packetsReceived = 0;
-      *bytesTransmitted = 0;
-      *packetsTransmitted = 0;
-      return;
-   }
+   if (r < 0)
+      return false;
+
 
    unsigned long int bytesReceivedSum = 0, packetsReceivedSum = 0, bytesTransmittedSum = 0, packetsTransmittedSum = 0;
 
@@ -275,4 +324,5 @@ void Platform_getNetworkIO(unsigned long int *bytesReceived,
    *packetsReceived = packetsReceivedSum;
    *bytesTransmitted = bytesTransmittedSum;
    *packetsTransmitted = packetsTransmittedSum;
+   return true;
 }

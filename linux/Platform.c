@@ -42,6 +42,7 @@ in the source distribution for its full text.
 #include "TasksMeter.h"
 #include "UptimeMeter.h"
 #include "XUtils.h"
+#include "ZramMeter.h"
 
 #include "zfs/ZfsArcMeter.h"
 #include "zfs/ZfsArcStats.h"
@@ -103,7 +104,7 @@ static Htop_Reaction Platform_actionSetIOPriority(State* st) {
    void* set = Action_pickFromVector(st, ioprioPanel, 21, true);
    if (set) {
       IOPriority ioprio2 = IOPriorityPanel_getIOPriority(ioprioPanel);
-      bool ok = MainPanel_foreachProcess((MainPanel*)panel, (MainPanel_ForeachProcessFn) LinuxProcess_setIOPriority, (Arg){ .i = ioprio2 }, NULL);
+      bool ok = MainPanel_foreachProcess((MainPanel*)panel, LinuxProcess_setIOPriority, (Arg){ .i = ioprio2 }, NULL);
       if (!ok)
          beep();
    }
@@ -148,6 +149,7 @@ const MeterClass* const Platform_meterTypes[] = {
    &PressureStallMemoryFullMeter_class,
    &ZfsArcMeter_class,
    &ZfsCompressedArcMeter_class,
+   &ZramMeter_class,
    &DiskIOMeter_class,
    &NetworkIOMeter_class,
    &SELinuxMeter_class,
@@ -189,8 +191,8 @@ int Platform_getMaxPid() {
 }
 
 double Platform_setCPUValues(Meter* this, int cpu) {
-   LinuxProcessList* pl = (LinuxProcessList*) this->pl;
-   CPUData* cpuData = &(pl->cpus[cpu]);
+   const LinuxProcessList* pl = (const LinuxProcessList*) this->pl;
+   const CPUData* cpuData = &(pl->cpus[cpu]);
    double total = (double) ( cpuData->totalPeriod == 0 ? 1 : cpuData->totalPeriod);
    double percent;
    double* v = this->values;
@@ -224,8 +226,8 @@ double Platform_setCPUValues(Meter* this, int cpu) {
 }
 
 void Platform_setMemoryValues(Meter* this) {
-   ProcessList* pl = this->pl;
-   LinuxProcessList* lpl = (LinuxProcessList*) this->pl;
+   const ProcessList* pl = this->pl;
+   const LinuxProcessList* lpl = (const LinuxProcessList*) pl;
 
    long int usedMem = pl->usedMem;
    long int buffersMem = pl->buffersMem;
@@ -243,19 +245,26 @@ void Platform_setMemoryValues(Meter* this) {
 }
 
 void Platform_setSwapValues(Meter* this) {
-   ProcessList* pl = (ProcessList*) this->pl;
+   const ProcessList* pl = this->pl;
    this->total = pl->totalSwap;
    this->values[0] = pl->usedSwap;
 }
 
+void Platform_setZramValues(Meter* this) {
+   const LinuxProcessList* lpl = (const LinuxProcessList*) this->pl;
+   this->total = lpl->zram.totalZram;
+   this->values[0] = lpl->zram.usedZramComp;
+   this->values[1] = lpl->zram.usedZramOrig;
+}
+
 void Platform_setZfsArcValues(Meter* this) {
-   LinuxProcessList* lpl = (LinuxProcessList*) this->pl;
+   const LinuxProcessList* lpl = (const LinuxProcessList*) this->pl;
 
    ZfsArcMeter_readStats(this, &(lpl->zfs));
 }
 
 void Platform_setZfsCompressedArcValues(Meter* this) {
-   LinuxProcessList* lpl = (LinuxProcessList*) this->pl;
+   const LinuxProcessList* lpl = (const LinuxProcessList*) this->pl;
 
    ZfsCompressedArcMeter_readStats(this, &(lpl->zfs));
 }
@@ -263,24 +272,35 @@ char* Platform_getProcessEnv(pid_t pid) {
    char procname[128];
    xSnprintf(procname, sizeof(procname), PROCDIR "/%d/environ", pid);
    FILE* fd = fopen(procname, "r");
+   if(!fd)
+      return NULL;
+
    char *env = NULL;
-   if (fd) {
-      size_t capacity = 4096, size = 0, bytes;
-      env = xMalloc(capacity);
-      while ((bytes = fread(env+size, 1, capacity-size, fd)) > 0) {
-         size += bytes;
-         capacity *= 2;
-         env = xRealloc(env, capacity);
-      }
-      fclose(fd);
-      if (size < 2 || env[size-1] || env[size-2]) {
-         if (size + 2 < capacity) {
-            env = xRealloc(env, capacity+2);
-         }
-         env[size] = 0;
-         env[size+1] = 0;
-      }
+
+   size_t capacity = 0;
+   size_t size = 0;
+   ssize_t bytes = 0;
+
+   do {
+      size += bytes;
+      capacity += 4096;
+      env = xRealloc(env, capacity);
+   } while ((bytes = fread(env + size, 1, capacity - size, fd)) > 0);
+
+   fclose(fd);
+
+   if (bytes < 0) {
+      free(env);
+      return NULL;
    }
+
+   size += bytes;
+
+   env = xRealloc(env, size + 2);
+
+   env[size] = '\0';
+   env[size+1] = '\0';
+
    return env;
 }
 
@@ -302,14 +322,11 @@ void Platform_getPressureStall(const char *file, bool some, double* ten, double*
    fclose(fd);
 }
 
-void Platform_getDiskIO(unsigned long int *bytesRead, unsigned long int *bytesWrite, unsigned long int *msTimeSpend) {
+bool Platform_getDiskIO(DiskIOData* data) {
    FILE *fd = fopen(PROCDIR "/diskstats", "r");
-   if (!fd) {
-      *bytesRead = 0;
-      *bytesWrite = 0;
-      *msTimeSpend = 0;
-      return;
-   }
+   if (!fd)
+      return false;
+
    unsigned long int read_sum = 0, write_sum = 0, timeSpend_sum = 0;
    char lineBuffer[256];
    while (fgets(lineBuffer, sizeof(lineBuffer), fd)) {
@@ -344,35 +361,31 @@ void Platform_getDiskIO(unsigned long int *bytesRead, unsigned long int *bytesWr
    }
    fclose(fd);
    /* multiply with sector size */
-   *bytesRead = 512 * read_sum;
-   *bytesWrite = 512 * write_sum;
-   *msTimeSpend = timeSpend_sum;
+   data->totalBytesRead = 512 * read_sum;
+   data->totalBytesWritten = 512 * write_sum;
+   data->totalMsTimeSpend = timeSpend_sum;
+   return true;
 }
 
-void Platform_getNetworkIO(unsigned long int *bytesReceived,
+bool Platform_getNetworkIO(unsigned long int *bytesReceived,
                            unsigned long int *packetsReceived,
                            unsigned long int *bytesTransmitted,
                            unsigned long int *packetsTransmitted) {
    FILE *fd = fopen(PROCDIR "/net/dev", "r");
-   if (!fd) {
-      *bytesReceived = 0;
-      *packetsReceived = 0;
-      *bytesTransmitted = 0;
-      *packetsTransmitted = 0;
-      return;
-   }
+   if (!fd)
+      return false;
 
    unsigned long int bytesReceivedSum = 0, packetsReceivedSum = 0, bytesTransmittedSum = 0, packetsTransmittedSum = 0;
    char lineBuffer[512];
    while (fgets(lineBuffer, sizeof(lineBuffer), fd)) {
       char interfaceName[32];
       unsigned long int bytesReceivedParsed, packetsReceivedParsed, bytesTransmittedParsed, packetsTransmittedParsed;
-      if (fscanf(fd, "%31s %lu %lu %*u %*u %*u %*u %*u %*u %lu %lu %*u %*u %*u %*u %*u %*u",
-                     interfaceName,
-                     &bytesReceivedParsed,
-                     &packetsReceivedParsed,
-                     &bytesTransmittedParsed,
-                     &packetsTransmittedParsed) != 5)
+      if (sscanf(lineBuffer, "%31s %lu %lu %*u %*u %*u %*u %*u %*u %lu %lu",
+                             interfaceName,
+                             &bytesReceivedParsed,
+                             &packetsReceivedParsed,
+                             &bytesTransmittedParsed,
+                             &packetsTransmittedParsed) != 5)
          continue;
 
       if (String_eq(interfaceName, "lo:"))
@@ -390,4 +403,5 @@ void Platform_getNetworkIO(unsigned long int *bytesReceived,
    *packetsReceived = packetsReceivedSum;
    *bytesTransmitted = bytesTransmittedSum;
    *packetsTransmitted = packetsTransmittedSum;
+   return true;
 }

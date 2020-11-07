@@ -157,7 +157,9 @@ typedef struct LinuxProcess_ {
 
 #define Process_isKernelThread(_process) (((const LinuxProcess*)(_process))->isKernelThread)
 
-#define Process_isUserlandThread(_process) (_process->pid != _process->tgid)
+static inline bool Process_isUserlandThread(const Process* this) {
+   return this->pid != this->tgid;
+}
 
 extern long long btime;
 
@@ -167,29 +169,19 @@ extern ProcessPidColumn Process_pidColumns[];
 
 extern const ProcessClass LinuxProcess_class;
 
-LinuxProcess* LinuxProcess_new(Settings* settings);
+Process* LinuxProcess_new(const Settings* settings);
 
 void Process_delete(Object* cast);
 
-/*
-[1] Note that before kernel 2.6.26 a process that has not asked for
-an io priority formally uses "none" as scheduling class, but the
-io scheduler will treat such processes as if it were in the best
-effort class. The priority within the best effort class will  be
-dynamically  derived  from  the  cpu  nice level of the process:
-extern io_priority;
-*/
-#define LinuxProcess_effectiveIOPriority(p_) (IOPriority_class(p_->ioPriority) == IOPRIO_CLASS_NONE ? IOPriority_tuple(IOPRIO_CLASS_BE, (p_->super.nice + 20) / 5) : p_->ioPriority)
-
 IOPriority LinuxProcess_updateIOPriority(LinuxProcess* this);
 
-bool LinuxProcess_setIOPriority(LinuxProcess* this, Arg ioprio);
+bool LinuxProcess_setIOPriority(Process* this, Arg ioprio);
 
 #ifdef HAVE_DELAYACCT
 void LinuxProcess_printDelay(float delay_percent, char* buffer, int n);
 #endif
 
-void LinuxProcess_writeField(Process* this, RichString* str, ProcessField field);
+void LinuxProcess_writeField(const Process* this, RichString* str, ProcessField field);
 
 long LinuxProcess_compare(const void* v1, const void* v2);
 

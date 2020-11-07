@@ -135,14 +135,14 @@ const ProcessClass LinuxProcess_class = {
       .delete = Process_delete,
       .compare = LinuxProcess_compare
    },
-   .writeField = (Process_WriteField) LinuxProcess_writeField,
+   .writeField = LinuxProcess_writeField,
 };
 
-LinuxProcess* LinuxProcess_new(Settings* settings) {
+Process* LinuxProcess_new(const Settings* settings) {
    LinuxProcess* this = xCalloc(1, sizeof(LinuxProcess));
    Object_setClass(this, Class(LinuxProcess));
    Process_init(&this->super, settings);
-   return this;
+   return &this->super;
 }
 
 void Process_delete(Object* cast) {
@@ -167,7 +167,12 @@ effort class. The priority within the best effort class will  be
 dynamically  derived  from  the  cpu  nice level of the process:
 io_priority = (cpu_nice + 20) / 5. -- From ionice(1) man page
 */
-#define LinuxProcess_effectiveIOPriority(p_) (IOPriority_class(p_->ioPriority) == IOPRIO_CLASS_NONE ? IOPriority_tuple(IOPRIO_CLASS_BE, (p_->super.nice + 20) / 5) : p_->ioPriority)
+static int LinuxProcess_effectiveIOPriority(const LinuxProcess* this) {
+   if (IOPriority_class(this->ioPriority) == IOPRIO_CLASS_NONE)
+      return IOPriority_tuple(IOPRIO_CLASS_BE, (this->super.nice + 20) / 5);
+
+   return this->ioPriority;
+}
 
 IOPriority LinuxProcess_updateIOPriority(LinuxProcess* this) {
    IOPriority ioprio = 0;
@@ -179,12 +184,12 @@ IOPriority LinuxProcess_updateIOPriority(LinuxProcess* this) {
    return ioprio;
 }
 
-bool LinuxProcess_setIOPriority(LinuxProcess* this, Arg ioprio) {
+bool LinuxProcess_setIOPriority(Process* this, Arg ioprio) {
 // Other OSes masquerading as Linux (NetBSD?) don't have this syscall
 #ifdef SYS_ioprio_set
-   syscall(SYS_ioprio_set, IOPRIO_WHO_PROCESS, this->super.pid, ioprio.i);
+   syscall(SYS_ioprio_set, IOPRIO_WHO_PROCESS, this->pid, ioprio.i);
 #endif
-   return (LinuxProcess_updateIOPriority(this) == ioprio.i);
+   return (LinuxProcess_updateIOPriority((LinuxProcess*)this) == ioprio.i);
 }
 
 #ifdef HAVE_DELAYACCT
@@ -197,8 +202,8 @@ void LinuxProcess_printDelay(float delay_percent, char* buffer, int n) {
 }
 #endif
 
-void LinuxProcess_writeField(Process* this, RichString* str, ProcessField field) {
-   LinuxProcess* lp = (LinuxProcess*) this;
+void LinuxProcess_writeField(const Process* this, RichString* str, ProcessField field) {
+   const LinuxProcess* lp = (const LinuxProcess*) this;
    bool coloring = this->settings->highlightMegabytes;
    char buffer[256]; buffer[255] = '\0';
    int attr = CRT_colors[DEFAULT_COLOR];

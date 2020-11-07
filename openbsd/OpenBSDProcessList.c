@@ -185,7 +185,7 @@ static double getpcpu(const struct kinfo_proc *kp) {
 }
 
 static inline void OpenBSDProcessList_scanProcs(OpenBSDProcessList* this) {
-   Settings* settings = this->super.settings;
+   const Settings* settings = this->super.settings;
    bool hideKernelThreads = settings->hideKernelThreads;
    bool hideUserlandThreads = settings->hideUserlandThreads;
    struct kinfo_proc* kproc;
@@ -203,7 +203,7 @@ static inline void OpenBSDProcessList_scanProcs(OpenBSDProcessList* this) {
       kproc = &kprocs[i];
 
       preExisting = false;
-      proc = ProcessList_getProcess(&this->super, kproc->p_pid, &preExisting, (Process_New) OpenBSDProcess_new);
+      proc = ProcessList_getProcess(&this->super, kproc->p_pid, &preExisting, OpenBSDProcess_new);
       fp = (OpenBSDProcess*) proc;
 
       proc->show = ! ((hideKernelThreads && Process_isKernelThread(proc))
@@ -340,10 +340,10 @@ static void OpenBSDProcessList_scanCPUTime(OpenBSDProcessList* this) {
    kernelCPUTimesToHtop(avg, this->cpus);
 }
 
-void ProcessList_goThroughEntries(ProcessList* this, bool pauseProcessUpdate) {
-   OpenBSDProcessList* opl = (OpenBSDProcessList*) this;
+void ProcessList_goThroughEntries(ProcessList* super, bool pauseProcessUpdate) {
+   OpenBSDProcessList* opl = (OpenBSDProcessList*) super;
 
-   OpenBSDProcessList_scanMemoryInfo(this);
+   OpenBSDProcessList_scanMemoryInfo(super);
    OpenBSDProcessList_scanCPUTime(opl);
 
    // in pause mode only gather global data for meters (CPU/memory/...)

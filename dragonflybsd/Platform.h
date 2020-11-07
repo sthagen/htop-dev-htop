@@ -10,6 +10,7 @@ in the source distribution for its full text.
 
 #include "Action.h"
 #include "BatteryMeter.h"
+#include "DiskIOMeter.h"
 #include "SignalsPanel.h"
 
 extern ProcessFieldData Process_fields[];
@@ -40,9 +41,9 @@ void Platform_setSwapValues(Meter* this);
 
 char* Platform_getProcessEnv(pid_t pid);
 
-void Platform_getDiskIO(unsigned long int *bytesRead, unsigned long int *bytesWrite, unsigned long int *msTimeSpend);
+bool Platform_getDiskIO(DiskIOData* data);
 
-void Platform_getNetworkIO(unsigned long int *bytesReceived,
+bool Platform_getNetworkIO(unsigned long int *bytesReceived,
                            unsigned long int *packetsReceived,
                            unsigned long int *bytesTransmitted,
                            unsigned long int *packetsTransmitted);

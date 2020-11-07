@@ -261,7 +261,6 @@ void Panel_draw(Panel* this, bool focus) {
       int line = 0;
       for(int i = first; line < h && i < upTo; i++) {
          Object* itemObj = Vector_get(this->items, i);
-         assert(itemObj); if(!itemObj) continue;
          RichString_begin(item);
          Object_display(itemObj, &item);
          int itemLen = RichString_sizeVal(item);
@@ -288,7 +287,6 @@ void Panel_draw(Panel* this, bool focus) {
 
    } else {
       Object* oldObj = Vector_get(this->items, this->oldSelected);
-      assert(oldObj);
       RichString_begin(old);
       Object_display(oldObj, &old);
       int oldLen = RichString_sizeVal(old);
@@ -423,7 +421,7 @@ HandlerResult Panel_selectByTyping(Panel* this, int ch) {
       for (int try = 0; try < 2; try++) {
          len = strlen(buffer);
          for (int i = 0; i < size; i++) {
-            char* cur = ((ListItem*) Panel_get(this, i))->value;
+            const char* cur = ((ListItem*) Panel_get(this, i))->value;
             while (*cur == ' ') cur++;
             if (strncasecmp(cur, buffer, len) == 0) {
                Panel_setSelected(this, i);
