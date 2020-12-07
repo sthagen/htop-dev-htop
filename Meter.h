@@ -10,6 +10,7 @@ in the source distribution for its full text.
 #include "config.h" // IWYU pragma: keep
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <sys/time.h>
 
 #include "ListItem.h"
@@ -19,13 +20,36 @@ in the source distribution for its full text.
 
 #define METER_BUFFER_LEN 256
 
+#define METER_BUFFER_CHECK(buffer, size, written)          \
+   do {                                                    \
+      if ((written) < 0 || (size_t)(written) >= (size)) {  \
+         return;                                           \
+      }                                                    \
+      (buffer) += (written);                               \
+      (size) -= (size_t)(written);                         \
+   } while (0)
+
+#define METER_BUFFER_APPEND_CHR(buffer, size, c)           \
+   do {                                                    \
+      if ((size) < 2) {                                    \
+         return;                                           \
+      }                                                    \
+      *(buffer)++ = c;                                     \
+      *(buffer) = '\0';                                    \
+      (size)--;                                            \
+      if ((size) == 0) {                                   \
+         return;                                           \
+      }                                                    \
+   } while (0)
+
+
 struct Meter_;
 typedef struct Meter_ Meter;
 
 typedef void(*Meter_Init)(Meter*);
 typedef void(*Meter_Done)(Meter*);
 typedef void(*Meter_UpdateMode)(Meter*, int);
-typedef void(*Meter_UpdateValues)(Meter*, char*, int);
+typedef void(*Meter_UpdateValues)(Meter*, char*, size_t);
 typedef void(*Meter_Draw)(Meter*, int, int, int);
 
 typedef struct MeterClass_ {
@@ -38,10 +62,10 @@ typedef struct MeterClass_ {
    const int defaultMode;
    const double total;
    const int* const attributes;
-   const char* const name;
-   const char* const uiName;
-   const char* const caption;
-   const char* const description;
+   const char* const name;                 /* internal name of the meter, must not contain any space */
+   const char* const uiName;               /* display name in header setup menu */
+   const char* const caption;              /* prefix in the actual header */
+   const char* const description;          /* optional meter description in header setup menu */
    const uint8_t maxItems;
 } MeterClass;
 
@@ -100,7 +124,7 @@ extern const MeterClass Meter_class;
 
 Meter* Meter_new(const ProcessList* pl, int param, const MeterClass* type);
 
-int Meter_humanUnit(char* buffer, unsigned long int value, int size);
+int Meter_humanUnit(char* buffer, unsigned long int value, size_t size);
 
 void Meter_delete(Object* cast);
 

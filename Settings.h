@@ -10,6 +10,7 @@ in the source distribution for its full text.
 #include "config.h" // IWYU pragma: keep
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #include "Process.h"
 
@@ -27,7 +28,7 @@ typedef struct Settings_ {
    MeterColumnSettings columns[2];
 
    ProcessField* fields;
-   int flags;
+   uint32_t flags;
    int colorScheme;
    int delay;
 
@@ -38,9 +39,12 @@ typedef struct Settings_ {
    bool detailedCPUTime;
    bool showCPUUsage;
    bool showCPUFrequency;
+   #ifdef HAVE_SENSORS_SENSORS_H
+   bool showCPUTemperature;
+   bool degreeFahrenheit;
+   #endif
    bool treeView;
    bool showProgramPath;
-   bool hideThreads;
    bool shadowOtherUsers;
    bool showThreadNames;
    bool hideKernelThreads;
@@ -48,6 +52,11 @@ typedef struct Settings_ {
    bool highlightBaseName;
    bool highlightMegabytes;
    bool highlightThreads;
+   bool highlightChanges;
+   int highlightDelaySecs;
+   bool findCommInCmdline;
+   bool stripExeFromCmdline;
+   bool showMergedCommand;
    bool updateProcessNames;
    bool accountGuestInCPUMeter;
    bool headerMargin;

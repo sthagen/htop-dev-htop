@@ -43,6 +43,7 @@ typedef enum ColorElements_ {
    FUNCTION_BAR,
    FUNCTION_KEY,
    FAILED_SEARCH,
+   FAILED_READ,
    PAUSED,
    PANEL_HEADER_FOCUS,
    PANEL_HEADER_UNFOCUS,
@@ -53,9 +54,10 @@ typedef enum ColorElements_ {
    METER_TEXT,
    METER_VALUE,
    METER_VALUE_ERROR,
-   METER_VALUE_NOTICE,
    METER_VALUE_IOREAD,
    METER_VALUE_IOWRITE,
+   METER_VALUE_NOTICE,
+   METER_VALUE_OK,
    LED_COLOR,
    UPTIME,
    BATTERY,
@@ -72,8 +74,12 @@ typedef enum ColorElements_ {
    PROCESS_BASENAME,
    PROCESS_HIGH_PRIORITY,
    PROCESS_LOW_PRIORITY,
+   PROCESS_NEW,
+   PROCESS_TOMB,
    PROCESS_THREAD,
    PROCESS_THREAD_BASENAME,
+   PROCESS_COMM,
+   PROCESS_THREAD_COMM,
    BAR_BORDER,
    BAR_SHADOW,
    GRAPH_1,
@@ -126,6 +132,7 @@ void CRT_handleSIGSEGV(int signal) ATTR_NORETURN;
 #define KEY_RECLICK   KEY_F(22)
 #define KEY_ALT(x)    (KEY_F(64 - 26) + ((x) - 'A'))
 
+extern const char* CRT_degreeSign;
 
 #ifdef HAVE_LIBNCURSESW
 
@@ -133,9 +140,7 @@ extern bool CRT_utf8;
 
 #endif
 
-extern const char *const *CRT_treeStr;
-
-extern int CRT_delay;
+extern const char* const* CRT_treeStr;
 
 extern const int* CRT_colors;
 
@@ -168,7 +173,7 @@ static inline void CRT_restorePrivileges(void) { }
 
 #endif /* HAVE_SETUID_ENABLED */
 
-void CRT_init(int delay, int colorScheme, bool allowUnicode);
+void CRT_init(const int* delay, int colorScheme, bool allowUnicode);
 
 void CRT_done(void);
 

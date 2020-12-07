@@ -7,41 +7,42 @@ in the source distribution for its full text.
 */
 
 #include "Platform.h"
-#include "Macros.h"
-#include "Meter.h"
+
+#include <errno.h>
+#include <kvm.h>
+#include <limits.h>
+#include <math.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <sys/resource.h>
+#include <sys/sensors.h>
+#include <sys/sysctl.h>
+#include <sys/time.h>
+#include <sys/types.h>
+#include <uvm/uvmexp.h>
+
 #include "CPUMeter.h"
-#include "MemoryMeter.h"
-#include "SwapMeter.h"
-#include "TasksMeter.h"
-#include "LoadAverageMeter.h"
-#include "UptimeMeter.h"
 #include "ClockMeter.h"
 #include "DateMeter.h"
 #include "DateTimeMeter.h"
 #include "HostnameMeter.h"
-#include "SignalsPanel.h"
+#include "LoadAverageMeter.h"
+#include "Macros.h"
+#include "MemoryMeter.h"
+#include "Meter.h"
 #include "OpenBSDProcess.h"
 #include "OpenBSDProcessList.h"
-
-#include <sys/param.h>
-#include <sys/sysctl.h>
-#include <sys/swap.h>
-
-#include <unistd.h>
-#include <stdlib.h>
-#include <stdint.h>
-#include <string.h>
-#include <sys/types.h>
-#include <sys/time.h>
-#include <sys/resource.h>
-#include <time.h>
-#include <fcntl.h>
-#include <kvm.h>
-#include <limits.h>
-#include <math.h>
+#include "ProcessList.h"
+#include "Settings.h"
+#include "SignalsPanel.h"
+#include "SwapMeter.h"
+#include "TasksMeter.h"
+#include "UptimeMeter.h"
+#include "XUtils.h"
 
 
-ProcessField Platform_defaultFields[] = { PID, USER, PRIORITY, NICE, M_SIZE, M_RESIDENT, STATE, PERCENT_CPU, PERCENT_MEM, TIME, COMM, 0 };
+ProcessField Platform_defaultFields[] = { PID, USER, PRIORITY, NICE, M_VIRT, M_RESIDENT, STATE, PERCENT_CPU, PERCENT_MEM, TIME, COMM, 0 };
 
 int Platform_numberOfFields = LAST_PROCESSFIELD;
 
@@ -87,10 +88,6 @@ const SignalItem Platform_signals[] = {
 
 const unsigned int Platform_numberOfSignals = ARRAYSIZE(Platform_signals);
 
-void Platform_setBindings(Htop_Action* keys) {
-   (void) keys;
-}
-
 const MeterClass* const Platform_meterTypes[] = {
    &CPUMeter_class,
    &ClockMeter_class,
@@ -120,10 +117,22 @@ const MeterClass* const Platform_meterTypes[] = {
    NULL
 };
 
-// preserved from FreeBSD port
+void Platform_init(void) {
+   /* no platform-specific setup needed */
+}
+
+void Platform_done(void) {
+   /* no platform-specific cleanup needed */
+}
+
+void Platform_setBindings(Htop_Action* keys) {
+   /* no platform-specific key bindings */
+   (void) keys;
+}
+
 int Platform_getUptime() {
    struct timeval bootTime, currTime;
-   int mib[2] = { CTL_KERN, KERN_BOOTTIME };
+   const int mib[2] = { CTL_KERN, KERN_BOOTTIME };
    size_t size = sizeof(bootTime);
 
    int err = sysctl(mib, 2, &bootTime, &size, NULL, 0);
@@ -137,7 +146,7 @@ int Platform_getUptime() {
 
 void Platform_getLoadAverage(double* one, double* five, double* fifteen) {
    struct loadavg loadAverage;
-   int mib[2] = { CTL_VM, VM_LOADAVG };
+   const int mib[2] = { CTL_VM, VM_LOADAVG };
    size_t size = sizeof(loadAverage);
 
    int err = sysctl(mib, 2, &loadAverage, &size, NULL, 0);
@@ -153,16 +162,16 @@ void Platform_getLoadAverage(double* one, double* five, double* fifteen) {
 }
 
 int Platform_getMaxPid() {
-   // this is hard-coded in sys/sys/proc.h - no sysctl exists
+   // this is hard-coded in sys/proc.h - no sysctl exists
    return 99999;
 }
 
 double Platform_setCPUValues(Meter* this, int cpu) {
-   const OpenBSDProcessList* pl = (OpenBSDProcessList*) this->pl;
+   const OpenBSDProcessList* pl = (const OpenBSDProcessList*) this->pl;
    const CPUData* cpuData = &(pl->cpus[cpu]);
    double total = cpuData->totalPeriod == 0 ? 1 : cpuData->totalPeriod;
    double totalPercent;
-   double *v = this->values;
+   double* v = this->values;
 
    v[CPU_METER_NICE] = cpuData->nicePeriod / total * 100.0;
    v[CPU_METER_NORMAL] = cpuData->userPeriod / total * 100.0;
@@ -175,16 +184,18 @@ double Platform_setCPUValues(Meter* this, int cpu) {
       v[CPU_METER_IOWAIT]  = 0.0;
       v[CPU_METER_FREQUENCY] = NAN;
       this->curItems = 8;
-      totalPercent = v[0]+v[1]+v[2]+v[3];
+      totalPercent = v[0] + v[1] + v[2] + v[3];
    } else {
       v[2] = cpuData->sysAllPeriod / total * 100.0;
       v[3] = 0.0; // No steal nor guest on OpenBSD
-      totalPercent = v[0]+v[1]+v[2];
+      totalPercent = v[0] + v[1] + v[2];
       this->curItems = 4;
    }
 
    totalPercent = CLAMP(totalPercent, 0.0, 100.0);
-   if (isnan(totalPercent)) totalPercent = 0.0;
+
+   v[CPU_METER_TEMPERATURE] = NAN;
+
    return totalPercent;
 }
 
@@ -200,61 +211,27 @@ void Platform_setMemoryValues(Meter* this) {
    this->values[2] = cachedMem;
 }
 
-/*
- * Copyright (c) 1994 Thorsten Lockert <tholo@sigmasoft.com>
- * All rights reserved.
- *
- * Taken almost directly from OpenBSD's top(1)
- */
 void Platform_setSwapValues(Meter* this) {
    const ProcessList* pl = this->pl;
-   struct swapent *swdev;
-   unsigned long long int total, used;
-   int nswap, rnswap, i;
-   nswap = swapctl(SWAP_NSWAP, 0, 0);
-   if (nswap == 0) {
-      return;
-   }
-
-   swdev = xCalloc(nswap, sizeof(*swdev));
-
-   rnswap = swapctl(SWAP_STATS, swdev, nswap);
-   if (rnswap == -1) {
-      free(swdev);
-      return;
-   }
-
-   // if rnswap != nswap, then what?
-
-   /* Total things up */
-   total = used = 0;
-   for (i = 0; i < nswap; i++) {
-      if (swdev[i].se_flags & SWF_ENABLE) {
-         used += (swdev[i].se_inuse / (1024 / DEV_BSIZE));
-         total += (swdev[i].se_nblks / (1024 / DEV_BSIZE));
-      }
-   }
-
-   this->total = pl->totalSwap = total;
-   this->values[0] = pl->usedSwap = used;
-
-   free(swdev);
+   this->total = pl->totalSwap;
+   this->values[0] = pl->usedSwap;
 }
 
 char* Platform_getProcessEnv(pid_t pid) {
    char errbuf[_POSIX2_LINE_MAX];
-   char *env;
-   char **ptr;
+   char* env;
+   char** ptr;
    int count;
-   kvm_t *kt;
-   struct kinfo_proc *kproc;
+   kvm_t* kt;
+   struct kinfo_proc* kproc;
    size_t capacity = 4096, size = 0;
 
-   if ((kt = kvm_openfiles(NULL, NULL, NULL, KVM_NO_FILES, errbuf)) == NULL)
+   if ((kt = kvm_openfiles(NULL, NULL, NULL, KVM_NO_FILES, errbuf)) == NULL) {
       return NULL;
+   }
 
    if ((kproc = kvm_getprocs(kt, KERN_PROC_PID, pid,
-                             sizeof(struct kinfo_proc), &count)) == NULL) {\
+                             sizeof(struct kinfo_proc), &count)) == NULL) {
       (void) kvm_close(kt);
       return NULL;
    }
@@ -265,7 +242,7 @@ char* Platform_getProcessEnv(pid_t pid) {
    }
 
    env = xMalloc(capacity);
-   for (char **p = ptr; *p; p++) {
+   for (char** p = ptr; *p; p++) {
       size_t len = strlen(*p) + 1;
 
       if (size + len > capacity) {
@@ -278,14 +255,25 @@ char* Platform_getProcessEnv(pid_t pid) {
    }
 
    if (size < 2 || env[size - 1] || env[size - 2]) {
-       if (size + 2 < capacity)
-           env = xRealloc(env, capacity + 2);
-       env[size] = 0;
-       env[size+1] = 0;
+      if (size + 2 < capacity)
+         env = xRealloc(env, capacity + 2);
+      env[size] = 0;
+      env[size + 1] = 0;
    }
 
    (void) kvm_close(kt);
    return env;
+}
+
+char* Platform_getInodeFilename(pid_t pid, ino_t inode) {
+    (void)pid;
+    (void)inode;
+    return NULL;
+}
+
+FileLocks_ProcessData* Platform_getProcessLocks(pid_t pid) {
+    (void)pid;
+    return NULL;
 }
 
 bool Platform_getDiskIO(DiskIOData* data) {
@@ -294,14 +282,71 @@ bool Platform_getDiskIO(DiskIOData* data) {
    return false;
 }
 
-bool Platform_getNetworkIO(unsigned long int *bytesReceived,
-                           unsigned long int *packetsReceived,
-                           unsigned long int *bytesTransmitted,
-                           unsigned long int *packetsTransmitted) {
+bool Platform_getNetworkIO(unsigned long int* bytesReceived,
+                           unsigned long int* packetsReceived,
+                           unsigned long int* bytesTransmitted,
+                           unsigned long int* packetsTransmitted) {
    // TODO
    *bytesReceived = 0;
    *packetsReceived = 0;
    *bytesTransmitted = 0;
    *packetsTransmitted = 0;
    return false;
+}
+
+static bool findDevice(const char* name, int* mib, struct sensordev* snsrdev, size_t* sdlen) {
+   for (int devn = 0;; devn++) {
+      mib[2] = devn;
+      if (sysctl(mib, 3, snsrdev, sdlen, NULL, 0) == -1) {
+         if (errno == ENXIO)
+            continue;
+         if (errno == ENOENT)
+            return false;
+      }
+      if (strcmp(name, snsrdev->xname) == 0) {
+         return true;
+      }
+   }
+}
+
+void Platform_getBattery(double* percent, ACPresence* isOnAC) {
+   int mib[] = {CTL_HW, HW_SENSORS, 0, 0, 0};
+   struct sensor s;
+   size_t slen = sizeof(struct sensor);
+   struct sensordev snsrdev;
+   size_t sdlen = sizeof(struct sensordev);
+
+   bool found = findDevice("acpibat0", mib, &snsrdev, &sdlen);
+
+   *percent = NAN;
+   if (found) {
+      /* last full capacity */
+      mib[3] = 7;
+      mib[4] = 0;
+      double last_full_capacity = 0;
+      if (sysctl(mib, 5, &s, &slen, NULL, 0) != -1)
+         last_full_capacity = s.value;
+      if (last_full_capacity > 0) {
+         /*  remaining capacity */
+         mib[3] = 7;
+         mib[4] = 3;
+         if (sysctl(mib, 5, &s, &slen, NULL, 0) != -1) {
+            double charge = s.value;
+            *percent = 100 * (charge / last_full_capacity);
+            if (charge >= last_full_capacity) {
+               *percent = 100;
+            }
+         }
+      }
+   }
+
+   found = findDevice("acpiac0", mib, &snsrdev, &sdlen);
+
+   *isOnAC = AC_ERROR;
+   if (found) {
+      mib[3] = 9;
+      mib[4] = 0;
+      if (sysctl(mib, 5, &s, &slen, NULL, 0) != -1)
+         *isOnAC = s.value;
+   }
 }

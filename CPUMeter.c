@@ -5,9 +5,12 @@ Released under the GNU GPLv2, see the COPYING file
 in the source distribution for its full text.
 */
 
+#include "config.h" // IWYU pragma: keep
+
 #include "CPUMeter.h"
 
 #include <math.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -47,7 +50,7 @@ static void CPUMeter_init(Meter* this) {
       Meter_setCaption(this, "Avg");
 }
 
-static void CPUMeter_updateValues(Meter* this, char* buffer, int size) {
+static void CPUMeter_updateValues(Meter* this, char* buffer, size_t size) {
    int cpu = this->param;
    if (cpu > this->pl->cpuCount) {
       xSnprintf(buffer, size, "absent");
@@ -56,25 +59,44 @@ static void CPUMeter_updateValues(Meter* this, char* buffer, int size) {
       return;
    }
    memset(this->values, 0, sizeof(double) * CPU_METER_ITEMCOUNT);
+
+   char cpuUsageBuffer[8] = { 0 };
+   char cpuFrequencyBuffer[16] = { 0 };
+   char cpuTemperatureBuffer[16] = { 0 };
+
    double percent = Platform_setCPUValues(this, cpu);
+
+   if (this->pl->settings->showCPUUsage) {
+      xSnprintf(cpuUsageBuffer, sizeof(cpuUsageBuffer), "%5.1f%%", percent);
+   }
+
    if (this->pl->settings->showCPUFrequency) {
       double cpuFrequency = this->values[CPU_METER_FREQUENCY];
-      char cpuFrequencyBuffer[16];
       if (isnan(cpuFrequency)) {
          xSnprintf(cpuFrequencyBuffer, sizeof(cpuFrequencyBuffer), "N/A");
       } else {
          xSnprintf(cpuFrequencyBuffer, sizeof(cpuFrequencyBuffer), "%4uMHz", (unsigned)cpuFrequency);
       }
-      if (this->pl->settings->showCPUUsage) {
-         xSnprintf(buffer, size, "%5.1f%% %s", percent, cpuFrequencyBuffer);
-      } else {
-         xSnprintf(buffer, size, "%s", cpuFrequencyBuffer);
-      }
-   } else if (this->pl->settings->showCPUUsage) {
-      xSnprintf(buffer, size, "%5.1f%%", percent);
-   } else if (size > 0) {
-      buffer[0] = '\0';
    }
+
+   #ifdef HAVE_SENSORS_SENSORS_H
+   if (this->pl->settings->showCPUTemperature) {
+      double cpuTemperature = this->values[CPU_METER_TEMPERATURE];
+      if (isnan(cpuTemperature))
+         xSnprintf(cpuTemperatureBuffer, sizeof(cpuTemperatureBuffer), "N/A");
+      else if (this->pl->settings->degreeFahrenheit)
+         xSnprintf(cpuTemperatureBuffer, sizeof(cpuTemperatureBuffer), "%3d%sF", (int)(cpuTemperature * 9 / 5 + 32), CRT_degreeSign);
+      else
+         xSnprintf(cpuTemperatureBuffer, sizeof(cpuTemperatureBuffer), "%d%sC", (int)cpuTemperature, CRT_degreeSign);
+   }
+   #endif
+
+   xSnprintf(buffer, size, "%s%s%s%s%s",
+             cpuUsageBuffer,
+             (cpuUsageBuffer[0] && (cpuFrequencyBuffer[0] || cpuTemperatureBuffer[0])) ? " " : "",
+             cpuFrequencyBuffer,
+             (cpuFrequencyBuffer[0] && cpuTemperatureBuffer[0]) ? " " : "",
+             cpuTemperatureBuffer);
 }
 
 static void CPUMeter_display(const Object* cast, RichString* out) {
@@ -127,6 +149,22 @@ static void CPUMeter_display(const Object* cast, RichString* out) {
          RichString_append(out, CRT_colors[CPU_GUEST], buffer);
       }
    }
+
+   #ifdef HAVE_SENSORS_SENSORS_H
+   if (this->pl->settings->showCPUTemperature) {
+      char cpuTemperatureBuffer[10];
+      double cpuTemperature = this->values[CPU_METER_TEMPERATURE];
+      if (isnan(cpuTemperature)) {
+         xSnprintf(cpuTemperatureBuffer, sizeof(cpuTemperatureBuffer), "N/A");
+      } else if (this->pl->settings->degreeFahrenheit) {
+         xSnprintf(cpuTemperatureBuffer, sizeof(cpuTemperatureBuffer), "%5.1f%sF", cpuTemperature * 9 / 5 + 32, CRT_degreeSign);
+      } else {
+         xSnprintf(cpuTemperatureBuffer, sizeof(cpuTemperatureBuffer), "%5.1f%sC", cpuTemperature, CRT_degreeSign);
+      }
+      RichString_append(out, CRT_colors[METER_TEXT], "temp:");
+      RichString_append(out, CRT_colors[METER_VALUE], cpuTemperatureBuffer);
+   }
+   #endif
 }
 
 static void AllCPUsMeter_getRange(Meter* this, int* start, int* count) {
@@ -149,7 +187,7 @@ static void AllCPUsMeter_getRange(Meter* this, int* start, int* count) {
    }
 }
 
-static void CPUMeterCommonInit(Meter *this, int ncol) {
+static void CPUMeterCommonInit(Meter* this, int ncol) {
    int cpus = this->pl->cpuCount;
    CPUMeterData* data = this->meterData;
    if (!data) {
@@ -162,13 +200,16 @@ static void CPUMeterCommonInit(Meter *this, int ncol) {
    AllCPUsMeter_getRange(this, &start, &count);
    for (int i = 0; i < count; i++) {
       if (!meters[i])
-         meters[i] = Meter_new(this->pl, start+i+1, (const MeterClass*) Class(CPUMeter));
+         meters[i] = Meter_new(this->pl, start + i + 1, (const MeterClass*) Class(CPUMeter));
+
       Meter_init(meters[i]);
    }
+
    if (this->mode == 0)
       this->mode = BAR_METERMODE;
+
    int h = Meter_modes[this->mode]->h;
-   this->h = h * ((count + ncol - 1)/ ncol);
+   this->h = h * ((count + ncol - 1) / ncol);
 }
 
 static void CPUMeterCommonUpdateMode(Meter* this, int mode, int ncol) {
@@ -181,7 +222,7 @@ static void CPUMeterCommonUpdateMode(Meter* this, int mode, int ncol) {
    for (int i = 0; i < count; i++) {
       Meter_setMode(meters[i], mode);
    }
-   this->h = h * ((count + ncol - 1)/ ncol);
+   this->h = h * ((count + ncol - 1) / ncol);
 }
 
 static void AllCPUsMeter_done(Meter* this) {
@@ -232,11 +273,11 @@ static void CPUMeterCommonDraw(Meter* this, int x, int y, int w, int ncol) {
    Meter** meters = data->meters;
    int start, count;
    AllCPUsMeter_getRange(this, &start, &count);
-   int colwidth = (w-ncol)/ncol + 1;
+   int colwidth = (w - ncol) / ncol + 1;
    int diff = (w - (colwidth * ncol));
    int nrows = (count + ncol - 1) / ncol;
-   for (int i = 0; i < count; i++){
-      int d = (i/nrows) > diff ? diff : (i / nrows) ; // dynamic spacer
+   for (int i = 0; i < count; i++) {
+      int d = (i / nrows) > diff ? diff : (i / nrows); // dynamic spacer
       int xpos = x + ((i / nrows) * colwidth) + d;
       int ypos = y + ((i % nrows) * meters[0]->h);
       meters[i]->draw(meters[i], xpos, ypos, colwidth);

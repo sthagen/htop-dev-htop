@@ -1,12 +1,13 @@
 /*
 htop - DiskIOMeter.c
-(C) 2020 Christian Göttsche
+(C) 2020 htop dev team
 Released under the GNU GPLv2, see the COPYING file
 in the source distribution for its full text.
 */
 
 #include "DiskIOMeter.h"
 
+#include <stdbool.h>
 #include <stdio.h>
 #include <sys/time.h>
 
@@ -29,10 +30,7 @@ static unsigned long int cached_read_diff = 0;
 static unsigned long int cached_write_diff = 0;
 static double cached_utilisation_diff = 0.0;
 
-static void DiskIOMeter_updateValues(Meter* this, char* buffer, int len) {
-   static unsigned long int cached_read_total = 0;
-   static unsigned long int cached_write_total = 0;
-   static unsigned long int cached_msTimeSpend_total = 0;
+static void DiskIOMeter_updateValues(Meter* this, char* buffer, size_t len) {
    static unsigned long long int cached_last_update = 0;
 
    struct timeval tv;
@@ -42,6 +40,10 @@ static void DiskIOMeter_updateValues(Meter* this, char* buffer, int len) {
 
    /* update only every 500ms */
    if (passedTimeInMs > 500) {
+      static unsigned long int cached_read_total = 0;
+      static unsigned long int cached_write_total = 0;
+      static unsigned long int cached_msTimeSpend_total = 0;
+
       cached_last_update = timeInMilliSeconds;
 
       DiskIOData data;

@@ -48,10 +48,11 @@ static void RichString_setLen(RichString* this, int len) {
 #ifdef HAVE_LIBNCURSESW
 
 static inline void RichString_writeFrom(RichString* this, int attrs, const char* data_c, int from, int len) {
-   wchar_t data[len+1];
+   wchar_t data[len + 1];
    len = mbstowcs(data, data_c, len);
    if (len < 0)
       return;
+
    int newLen = from + len;
    RichString_setLen(this, newLen);
    for (int i = from, j = 0; i < newLen; i++, j++) {
@@ -84,8 +85,9 @@ int RichString_findChar(RichString* this, char c, int start) {
 static inline void RichString_writeFrom(RichString* this, int attrs, const char* data_c, int from, int len) {
    int newLen = from + len;
    RichString_setLen(this, newLen);
-   for (int i = from, j = 0; i < newLen; i++, j++)
-      this->chptr[i] = (data_c[j] >= 32 ? data_c[j] : '?') | attrs;
+   for (int i = from, j = 0; i < newLen; i++, j++) {
+      this->chptr[i] = (((unsigned char)data_c[j]) >= 32 ? ((unsigned char)data_c[j]) : '?') | attrs;
+   }
    this->chptr[newLen] = 0;
 }
 
@@ -115,6 +117,15 @@ void RichString_prune(RichString* this) {
       free(this->chptr);
    memset(this, 0, sizeof(RichString));
    this->chptr = this->chstr;
+}
+
+void RichString_appendChr(RichString* this, char c, int count) {
+   int from = this->chlen;
+   int newLen = from + count;
+   RichString_setLen(this, newLen);
+   for (int i = from; i < newLen; i++) {
+      RichString_setChar(this, i, c);
+   }
 }
 
 void RichString_setAttr(RichString* this, int attrs) {

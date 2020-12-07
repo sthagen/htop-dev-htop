@@ -9,11 +9,11 @@ in the source distribution for its full text.
 */
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <sys/types.h>
 
 #include "Object.h"
 #include "RichString.h"
-
 
 #ifdef __ANDROID__
 #define SYS_ioprio_get __NR_ioprio_get
@@ -21,6 +21,7 @@ in the source distribution for its full text.
 #endif
 
 #define PROCESS_FLAG_IO 0x0001
+#define DEFAULT_HIGHLIGHT_SECS 5
 
 typedef enum ProcessFields {
    NULL_PROCESSFIELD = 0,
@@ -38,7 +39,7 @@ typedef enum ProcessFields {
    NICE = 19,
    STARTTIME = 21,
    PROCESSOR = 38,
-   M_SIZE = 39,
+   M_VIRT = 39,
    M_RESIDENT = 40,
    ST_UID = 46,
    PERCENT_CPU = 47,
@@ -47,6 +48,7 @@ typedef enum ProcessFields {
    TIME = 50,
    NLWP = 51,
    TGID = 52,
+   PERCENT_NORM_CPU = 53,
 } ProcessField;
 
 typedef struct ProcessPidColumn_ {
@@ -59,13 +61,14 @@ struct Settings_;
 typedef struct Process_ {
    Object super;
 
+   const struct ProcessList_* processList;
    const struct Settings_* settings;
 
    unsigned long long int time;
    pid_t pid;
    pid_t ppid;
    pid_t tgid;
-   char* comm;
+   char* comm;  /* use Process_getCommand() for Command actually displayed */
    int commLen;
    int indent;
 
@@ -76,6 +79,7 @@ typedef struct Process_ {
    bool tag;
    bool showChildren;
    bool show;
+   bool wasShown;
    unsigned int pgrp;
    unsigned int session;
    unsigned int tty_nr;
@@ -94,20 +98,28 @@ typedef struct Process_ {
    char starttime_show[8];
    time_t starttime_ctime;
 
-   long m_size;
+   long m_virt;
    long m_resident;
 
    int exit_signal;
 
+   time_t seenTs;
+   time_t tombTs;
+
    unsigned long int minflt;
    unsigned long int majflt;
+
+   unsigned int tree_left;
+   unsigned int tree_right;
+   unsigned int tree_depth;
+   unsigned int tree_index;
 } Process;
 
 typedef struct ProcessFieldData_ {
    const char* name;
    const char* title;
    const char* description;
-   int flags;
+   uint32_t flags;
 } ProcessFieldData;
 
 // Implemented in platform-specific code:
@@ -121,13 +133,17 @@ extern char Process_pidFormat[20];
 
 typedef Process*(*Process_New)(const struct Settings_*);
 typedef void (*Process_WriteField)(const Process*, RichString*, ProcessField);
+typedef const char* (*Process_GetCommandStr)(const Process*);
 
 typedef struct ProcessClass_ {
    const ObjectClass super;
    const Process_WriteField writeField;
+   const Process_GetCommandStr getCommandStr;
 } ProcessClass;
 
 #define As_Process(this_)              ((const ProcessClass*)((this_)->super.klass))
+
+#define Process_getCommand(this_)      (As_Process(this_)->getCommandStr ? As_Process(this_)->getCommandStr((const Process*)(this_)) : ((const Process*)(this_))->comm)
 
 static inline pid_t Process_getParentPid(const Process* this) {
    return this->tgid == this->pid ? this->ppid : this->tgid;
@@ -160,7 +176,7 @@ void Process_printTime(RichString* str, unsigned long long totalHundredths);
 
 void Process_fillStarttimeBuffer(Process* this);
 
-void Process_outputRate(RichString* str, char* buffer, int n, double rate, int coloring);
+void Process_outputRate(RichString* str, char* buffer, size_t n, double rate, int coloring);
 
 void Process_display(const Object* cast, RichString* out);
 
@@ -171,6 +187,10 @@ extern const ProcessClass Process_class;
 void Process_init(Process* this, const struct Settings_* settings);
 
 void Process_toggleTag(Process* this);
+
+bool Process_isNew(const Process* this);
+
+bool Process_isTomb(const Process* this);
 
 bool Process_setPriority(Process* this, int priority);
 

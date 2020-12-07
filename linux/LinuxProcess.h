@@ -8,25 +8,26 @@ Released under the GNU GPLv2, see the COPYING file
 in the source distribution for its full text.
 */
 
-#include "config.h"
+#include "config.h" // IWYU pragma: keep
 
 #include <stdbool.h>
-#include <sys/types.h>
 
 #include "IOPriority.h"
 #include "Object.h"
 #include "Process.h"
-#include "RichString.h"
 #include "Settings.h"
 
-#define PROCESS_FLAG_LINUX_IOPRIO   0x0100
-#define PROCESS_FLAG_LINUX_OPENVZ   0x0200
-#define PROCESS_FLAG_LINUX_VSERVER  0x0400
-#define PROCESS_FLAG_LINUX_CGROUP   0x0800
-#define PROCESS_FLAG_LINUX_OOM      0x1000
-#define PROCESS_FLAG_LINUX_SMAPS    0x2000
-#define PROCESS_FLAG_LINUX_CTXT     0x4000
-#define PROCESS_FLAG_LINUX_SECATTR  0x8000
+
+#define PROCESS_FLAG_LINUX_IOPRIO   0x00000100
+#define PROCESS_FLAG_LINUX_OPENVZ   0x00000200
+#define PROCESS_FLAG_LINUX_VSERVER  0x00000400
+#define PROCESS_FLAG_LINUX_CGROUP   0x00000800
+#define PROCESS_FLAG_LINUX_OOM      0x00001000
+#define PROCESS_FLAG_LINUX_SMAPS    0x00002000
+#define PROCESS_FLAG_LINUX_CTXT     0x00004000
+#define PROCESS_FLAG_LINUX_SECATTR  0x00008000
+#define PROCESS_FLAG_LINUX_LRS_FIX  0x00010000
+#define PROCESS_FLAG_LINUX_CWD      0x00020000
 
 typedef enum UnsupportedProcessFields {
    FLAGS = 9,
@@ -68,7 +69,6 @@ typedef enum LinuxProcessFields {
    #ifdef HAVE_VSERVER
    VXID = 102,
    #endif
-   #ifdef HAVE_TASKSTATS
    RCHAR = 103,
    WCHAR = 104,
    SYSCR = 105,
@@ -79,10 +79,7 @@ typedef enum LinuxProcessFields {
    IO_READ_RATE = 110,
    IO_WRITE_RATE = 111,
    IO_RATE = 112,
-   #endif
-   #ifdef HAVE_CGROUP
    CGROUP = 113,
-   #endif
    OOM = 114,
    IO_PRIORITY = 115,
    #ifdef HAVE_DELAYACCT
@@ -95,11 +92,46 @@ typedef enum LinuxProcessFields {
    M_PSSWP = 121,
    CTXT = 122,
    SECATTR = 123,
-   LAST_PROCESSFIELD = 124,
+   PROC_COMM = 124,
+   PROC_EXE = 125,
+   CWD = 126,
+   LAST_PROCESSFIELD = 127,
 } LinuxProcessField;
+
+/* LinuxProcessMergedCommand is populated by LinuxProcess_makeCommandStr: It
+ * contains the merged Command string, and the information needed by
+ * LinuxProcess_writeCommand to color the string. str will be NULL for kernel
+ * threads and zombies */
+typedef struct LinuxProcessMergedCommand_ {
+   char *str;           /* merged Command string */
+   int maxLen;          /* maximum expected length of Command string */
+   int baseStart;       /* basename's start offset */
+   int baseEnd;         /* basename's end offset */
+   int commStart;       /* comm's start offset */
+   int commEnd;         /* comm's end offset */
+   int sep1;            /* first field separator, used if non-zero */
+   int sep2;            /* second field separator, used if non-zero */
+   bool separateComm;   /* whether comm is a separate field */
+   bool unmatchedExe;   /* whether exe matched with cmdline */
+   bool cmdlineChanged; /* whether cmdline changed */
+   bool exeChanged;     /* whether exe changed */
+   bool commChanged;    /* whether comm changed */
+   bool prevMergeSet;   /* whether showMergedCommand was set */
+   bool prevPathSet;    /* whether showProgramPath was set */
+   bool prevCommSet;    /* whether findCommInCmdline was set */
+   bool prevCmdlineSet; /* whether findCommInCmdline was set */
+} LinuxProcessMergedCommand;
 
 typedef struct LinuxProcess_ {
    Process super;
+   char *procComm;
+   char *procExe;
+   int procExeLen;
+   int procExeBasenameOffset;
+   bool procExeDeleted;
+   int procCmdlineBasenameOffset;
+   int procCmdlineBasenameEnd;
+   LinuxProcessMergedCommand mergedCommand;
    bool isKernelThread;
    IOPriority ioPriority;
    unsigned long int cminflt;
@@ -116,7 +148,6 @@ typedef struct LinuxProcess_ {
    long m_drs;
    long m_lrs;
    long m_dt;
-   #ifdef HAVE_TASKSTATS
    unsigned long long io_rchar;
    unsigned long long io_wchar;
    unsigned long long io_syscr;
@@ -128,7 +159,6 @@ typedef struct LinuxProcess_ {
    unsigned long long io_rate_write_time;
    double io_rate_read_bps;
    double io_rate_write_bps;
-   #endif
    #ifdef HAVE_OPENVZ
    char* ctid;
    pid_t vpid;
@@ -136,9 +166,7 @@ typedef struct LinuxProcess_ {
    #ifdef HAVE_VSERVER
    unsigned int vxid;
    #endif
-   #ifdef HAVE_CGROUP
    char* cgroup;
-   #endif
    unsigned int oom;
    char* ttyDevice;
    #ifdef HAVE_DELAYACCT
@@ -152,7 +180,9 @@ typedef struct LinuxProcess_ {
    #endif
    unsigned long ctxt_total;
    unsigned long ctxt_diff;
-   char *secattr;
+   char* secattr;
+   unsigned long long int last_mlrs_calctime;
+   char* cwd;
 } LinuxProcess;
 
 #define Process_isKernelThread(_process) (((const LinuxProcess*)(_process))->isKernelThread)
@@ -177,13 +207,9 @@ IOPriority LinuxProcess_updateIOPriority(LinuxProcess* this);
 
 bool LinuxProcess_setIOPriority(Process* this, Arg ioprio);
 
-#ifdef HAVE_DELAYACCT
-void LinuxProcess_printDelay(float delay_percent, char* buffer, int n);
-#endif
-
-void LinuxProcess_writeField(const Process* this, RichString* str, ProcessField field);
-
-long LinuxProcess_compare(const void* v1, const void* v2);
+/* This function constructs the string that is displayed by
+ * LinuxProcess_writeCommand and also returned by LinuxProcess_getCommandStr */
+void LinuxProcess_makeCommandStr(Process *this);
 
 bool Process_isThread(const Process* this);
 

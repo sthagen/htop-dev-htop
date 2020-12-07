@@ -18,7 +18,6 @@ in the source distribution for its full text.
 #include <unistd.h>
 
 #include "Action.h"
-#include "ColumnsPanel.h"
 #include "CRT.h"
 #include "Hashtable.h"
 #include "Header.h"
@@ -35,32 +34,30 @@ in the source distribution for its full text.
 #include "UsersTable.h"
 #include "XUtils.h"
 
-
-//#link m
-
 static void printVersionFlag(void) {
-   fputs("htop " VERSION "\n", stdout);
+   fputs(PACKAGE " " VERSION "\n", stdout);
 }
 
 static void printHelpFlag(void) {
-   fputs("htop " VERSION "\n"
+   fputs(PACKAGE " " VERSION "\n"
          COPYRIGHT "\n"
          "Released under the GNU GPLv2.\n\n"
-         "-C --no-color               Use a monochrome color scheme\n"
-         "-d --delay=DELAY            Set the delay between updates, in tenths of seconds\n"
-         "-F --filter=FILTER          Show only the commands matching the given filter\n"
-         "-h --help                   Print this help screen\n"
-         "-M --no-mouse               Disable the mouse\n"
-         "-p --pid=PID,[,PID,PID...]  Show only the given PIDs\n"
-         "-s --sort-key=COLUMN        Sort by COLUMN (try --sort-key=help for a list)\n"
-         "-t --tree                   Show the tree view by default\n"
-         "-u --user[=USERNAME]        Show only processes for a given user (or $USER)\n"
-         "-U --no-unicode             Do not use unicode but plain ASCII\n"
-         "-V --version                Print version info\n"
+         "-C --no-color                   Use a monochrome color scheme\n"
+         "-d --delay=DELAY                Set the delay between updates, in tenths of seconds\n"
+         "-F --filter=FILTER              Show only the commands matching the given filter\n"
+         "-h --help                       Print this help screen\n"
+         "-H --highlight-changes[=DELAY]  Highlight new and old processes\n"
+         "-M --no-mouse                   Disable the mouse\n"
+         "-p --pid=PID[,PID,PID...]       Show only the given PIDs\n"
+         "-s --sort-key=COLUMN            Sort by COLUMN (try --sort-key=help for a list)\n"
+         "-t --tree                       Show the tree view by default\n"
+         "-u --user[=USERNAME]            Show only processes for a given user (or $USER)\n"
+         "-U --no-unicode                 Do not use unicode but plain ASCII\n"
+         "-V --version                    Print version info\n"
          "\n"
          "Long options may be passed with a single dash.\n\n"
-         "Press F1 inside htop for online help.\n"
-         "See 'man htop' for more information.\n",
+         "Press F1 inside " PACKAGE " for online help.\n"
+         "See 'man " PACKAGE "' for more information.\n",
          stdout);
 }
 
@@ -76,6 +73,8 @@ typedef struct CommandLineSettings_ {
    bool enableMouse;
    bool treeView;
    bool allowUnicode;
+   bool highlightChanges;
+   int highlightDelaySecs;
 } CommandLineSettings;
 
 static CommandLineSettings parseArguments(int argc, char** argv) {
@@ -90,6 +89,8 @@ static CommandLineSettings parseArguments(int argc, char** argv) {
       .enableMouse = true,
       .treeView = false,
       .allowUnicode = true,
+      .highlightChanges = false,
+      .highlightDelaySecs = -1,
    };
 
    static struct option long_opts[] =
@@ -106,12 +107,13 @@ static CommandLineSettings parseArguments(int argc, char** argv) {
       {"tree",       no_argument,         0, 't'},
       {"pid",        required_argument,   0, 'p'},
       {"filter",     required_argument,   0, 'F'},
+      {"highlight-changes", optional_argument, 0, 'H'},
       {0,0,0,0}
    };
 
    int opt, opti=0;
    /* Parse arguments */
-   while ((opt = getopt_long(argc, argv, "hVMCs:td:u::Up:F:", long_opts, &opti))) {
+   while ((opt = getopt_long(argc, argv, "hVMCs:td:u::Up:F:H::", long_opts, &opti))) {
       if (opt == EOF) break;
       switch (opt) {
          case 'h':
@@ -129,7 +131,7 @@ static CommandLineSettings parseArguments(int argc, char** argv) {
                }
                exit(0);
             }
-            flags.sortKey = -1;
+            flags.sortKey = 0;
             for (int j = 1; j < Platform_numberOfFields; j++) {
                if (Process_fields[j].name == NULL)
                   continue;
@@ -138,7 +140,7 @@ static CommandLineSettings parseArguments(int argc, char** argv) {
                   break;
                }
             }
-            if (flags.sortKey == -1) {
+            if (flags.sortKey == 0) {
                fprintf(stderr, "Error: invalid column \"%s\".\n", optarg);
                exit(1);
             }
@@ -206,6 +208,24 @@ static CommandLineSettings parseArguments(int argc, char** argv) {
 
             break;
          }
+         case 'H': {
+            const char *delay = optarg;
+            if (!delay && optind < argc && argv[optind] != NULL &&
+                (argv[optind][0] != '\0' && argv[optind][0] != '-')) {
+                delay = argv[optind++];
+            }
+            if (delay) {
+                if (sscanf(delay, "%16d", &(flags.highlightDelaySecs)) == 1) {
+                   if (flags.highlightDelaySecs < 1)
+                      flags.highlightDelaySecs = 1;
+                } else {
+                   fprintf(stderr, "Error: invalid highlight delay value \"%s\".\n", delay);
+                   exit(1);
+                }
+            }
+            flags.highlightChanges = true;
+            break;
+         }
          default:
             exit(1);
       }
@@ -242,22 +262,16 @@ static void setCommFilter(State* state, char** commFilter) {
 
 int main(int argc, char** argv) {
 
-   char *lc_ctype = getenv("LC_CTYPE");
-   if(lc_ctype != NULL)
-      setlocale(LC_CTYPE, lc_ctype);
-   else if ((lc_ctype = getenv("LC_ALL")))
+   /* initialize locale */
+   const char* lc_ctype;
+   if ((lc_ctype = getenv("LC_CTYPE")) || (lc_ctype = getenv("LC_ALL")))
       setlocale(LC_CTYPE, lc_ctype);
    else
       setlocale(LC_CTYPE, "");
 
-   CommandLineSettings flags = parseArguments(argc, argv); // may exit()
+   CommandLineSettings flags = parseArguments(argc, argv);
 
-#ifdef HTOP_LINUX
-   if (access(PROCDIR, R_OK) != 0) {
-      fprintf(stderr, "Error: could not read procfs (compiled to look in %s).\n", PROCDIR);
-      exit(1);
-   }
-#endif
+   Platform_init();
 
    Process_setupColumnWidths();
 
@@ -279,19 +293,23 @@ int main(int argc, char** argv) {
       settings->enableMouse = false;
    if (flags.treeView)
       settings->treeView = true;
+   if (flags.highlightChanges)
+      settings->highlightChanges = true;
+   if (flags.highlightDelaySecs != -1)
+      settings->highlightDelaySecs = flags.highlightDelaySecs;
+   if (flags.sortKey > 0) {
+      settings->sortKey = flags.sortKey;
+      settings->treeView = false;
+      settings->direction = 1;
+   }
 
-   CRT_init(settings->delay, settings->colorScheme, flags.allowUnicode);
+   CRT_init(&(settings->delay), settings->colorScheme, flags.allowUnicode);
 
    MainPanel* panel = MainPanel_new();
    ProcessList_setPanel(pl, (Panel*) panel);
 
    MainPanel_updateTreeFunctions(panel, settings->treeView);
 
-   if (flags.sortKey > 0) {
-      settings->sortKey = flags.sortKey;
-      settings->treeView = false;
-      settings->direction = 1;
-   }
    ProcessList_printHeader(pl, Panel_getHeader((Panel*)panel));
 
    State state = {
@@ -301,14 +319,14 @@ int main(int argc, char** argv) {
       .panel = (Panel*) panel,
       .header = header,
       .pauseProcessUpdate = false,
+      .hideProcessSelection = false,
    };
 
    MainPanel_setState(panel, &state);
-   if (flags.commFilter) {
+   if (flags.commFilter)
       setCommFilter(&state, &(flags.commFilter));
-   }
 
-   ScreenManager* scr = ScreenManager_new(0, header->height, 0, -1, HORIZONTAL, header, settings, &state, true);
+   ScreenManager* scr = ScreenManager_new(header, settings, &state, true);
    ScreenManager_add(scr, (Panel*) panel, -1);
 
    ProcessList_scan(pl, false);
@@ -322,6 +340,8 @@ int main(int argc, char** argv) {
    attroff(CRT_colors[RESET_COLOR]);
    refresh();
 
+   Platform_done();
+
    CRT_done();
    if (settings->changed)
       Settings_write(settings);
@@ -334,8 +354,8 @@ int main(int argc, char** argv) {
    UsersTable_delete(ut);
    Settings_delete(settings);
 
-   if(flags.pidMatchList) {
+   if (flags.pidMatchList)
       Hashtable_delete(flags.pidMatchList);
-   }
+
    return 0;
 }

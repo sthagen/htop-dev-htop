@@ -42,13 +42,13 @@ typedef struct DragonFlyBSDProcessList_ {
 
    CPUData* cpus;
 
-   unsigned long   *cp_time_o;
-   unsigned long   *cp_time_n;
+   unsigned long* cp_time_o;
+   unsigned long* cp_time_n;
 
-   unsigned long  *cp_times_o;
-   unsigned long  *cp_times_n;
+   unsigned long* cp_times_o;
+   unsigned long* cp_times_n;
 
-   Hashtable *jails;
+   Hashtable* jails;
 } DragonFlyBSDProcessList;
 
 ProcessList* ProcessList_new(UsersTable* usersTable, Hashtable* pidMatchList, uid_t userId);
@@ -59,6 +59,6 @@ char* DragonFlyBSDProcessList_readProcessName(kvm_t* kd, struct kinfo_proc* kpro
 
 char* DragonFlyBSDProcessList_readJailName(DragonFlyBSDProcessList* dfpl, int jailid);
 
-void ProcessList_goThroughEntries(ProcessList* super, pauseProcessUpdate);
+void ProcessList_goThroughEntries(ProcessList* super, bool pauseProcessUpdate);
 
 #endif

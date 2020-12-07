@@ -47,6 +47,10 @@ typedef struct CPUData_ {
    unsigned long long int guestPeriod;
 
    double frequency;
+
+   #ifdef HAVE_SENSORS_SENSORS_H
+   double temperature;
+   #endif
 } CPUData;
 
 typedef struct TtyDriver_ {
@@ -64,7 +68,7 @@ typedef struct LinuxProcessList_ {
    bool haveSmapsRollup;
 
    #ifdef HAVE_DELAYACCT
-   struct nl_sock *netlink_socket;
+   struct nl_sock* netlink_socket;
    int netlink_family;
    #endif
 

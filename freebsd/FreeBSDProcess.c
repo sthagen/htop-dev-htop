@@ -5,16 +5,15 @@ Released under the GNU GPLv2, see the COPYING file
 in the source distribution for its full text.
 */
 
-#include "Process.h"
-#include "ProcessList.h"
 #include "FreeBSDProcess.h"
-#include "Platform.h"
-#include "CRT.h"
 
 #include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <sys/syscall.h>
+
+#include "CRT.h"
+#include "Macros.h"
+#include "Process.h"
+#include "RichString.h"
+#include "XUtils.h"
 
 
 const char* const nodevStr = "nodev";
@@ -36,10 +35,11 @@ ProcessFieldData Process_fields[] = {
    [STARTTIME] = { .name = "STARTTIME", .title = "START ", .description = "Time the process was started", .flags = 0, },
 
    [PROCESSOR] = { .name = "PROCESSOR", .title = "CPU ", .description = "Id of the CPU the process last executed on", .flags = 0, },
-   [M_SIZE] = { .name = "M_SIZE", .title = " VIRT ", .description = "Total program size in virtual memory", .flags = 0, },
+   [M_VIRT] = { .name = "M_VIRT", .title = " VIRT ", .description = "Total program size in virtual memory", .flags = 0, },
    [M_RESIDENT] = { .name = "M_RESIDENT", .title = "  RES ", .description = "Resident set size, size of the text and data sections, plus stack usage", .flags = 0, },
    [ST_UID] = { .name = "ST_UID", .title = "  UID ", .description = "User ID of the process owner", .flags = 0, },
    [PERCENT_CPU] = { .name = "PERCENT_CPU", .title = "CPU% ", .description = "Percentage of the CPU time the process used in the last sampling", .flags = 0, },
+   [PERCENT_NORM_CPU] = { .name = "PERCENT_NORM_CPU", .title = "NCPU%", .description = "Normalized percentage of the CPU time the process used in the last sampling (normalized by cpu count)", .flags = 0, },
    [PERCENT_MEM] = { .name = "PERCENT_MEM", .title = "MEM% ", .description = "Percentage of the memory the process is using, based on resident memory size", .flags = 0, },
    [USER] = { .name = "USER", .title = "USER      ", .description = "Username of the process owner (or user ID if name cannot be determined)", .flags = 0, },
    [TIME] = { .name = "TIME", .title = "  TIME+  ", .description = "Total time the process has spent in user and system time", .flags = 0, },
@@ -83,7 +83,7 @@ static void FreeBSDProcess_writeField(const Process* this, RichString* str, Proc
    switch ((int) field) {
    // add FreeBSD-specific fields here
    case JID: xSnprintf(buffer, n, Process_pidFormat, fp->jid); break;
-   case JAIL:{
+   case JAIL: {
       xSnprintf(buffer, n, "%-11s ", fp->jname);
       if (buffer[11] != '\0') {
          buffer[11] = ' ';
@@ -111,6 +111,7 @@ static void FreeBSDProcess_writeField(const Process* this, RichString* str, Proc
 static long FreeBSDProcess_compare(const void* v1, const void* v2) {
    const FreeBSDProcess *p1, *p2;
    const Settings *settings = ((const Process*)v1)->settings;
+
    if (settings->direction == 1) {
       p1 = (const FreeBSDProcess*)v1;
       p2 = (const FreeBSDProcess*)v2;
@@ -118,14 +119,15 @@ static long FreeBSDProcess_compare(const void* v1, const void* v2) {
       p2 = (const FreeBSDProcess*)v1;
       p1 = (const FreeBSDProcess*)v2;
    }
+
    switch ((int) settings->sortKey) {
    // add FreeBSD-specific fields here
    case JID:
-      return (p1->jid - p2->jid);
+      return SPACESHIP_NUMBER(p1->jid, p2->jid);
    case JAIL:
-      return strcmp(p1->jname ? p1->jname : "", p2->jname ? p2->jname : "");
+      return SPACESHIP_NULLSTR(p1->jname, p2->jname);
    case TTY_NR:
-      return strcmp(p1->ttyPath ? p1->ttyPath : "", p2->ttyPath ? p2->ttyPath : "");
+      return SPACESHIP_NULLSTR(p1->ttyPath, p2->ttyPath);
    default:
       return Process_compare(v1, v2);
    }
@@ -134,10 +136,11 @@ static long FreeBSDProcess_compare(const void* v1, const void* v2) {
 bool Process_isThread(const Process* this) {
    const FreeBSDProcess* fp = (const FreeBSDProcess*) this;
 
-   if (fp->kernel == 1 )
+   if (fp->kernel == 1 ) {
       return 1;
-   else
+   } else {
       return Process_isUserlandThread(this);
+   }
 }
 
 const ProcessClass FreeBSDProcess_class = {

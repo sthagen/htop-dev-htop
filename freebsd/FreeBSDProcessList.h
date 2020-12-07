@@ -8,14 +8,10 @@ in the source distribution for its full text.
 */
 
 #include <kvm.h>
-#include <sys/param.h> // needs to be included before <sys/jail.h> for MAXPATHLEN
-#include <sys/jail.h>
-#include <sys/resource.h>
-#include <sys/uio.h>
+#include <stdbool.h>
+#include <sys/types.h>
 
-#include "FreeBSDProcess.h"
 #include "Hashtable.h"
-#include "Process.h"
 #include "ProcessList.h"
 #include "UsersTable.h"
 #include "zfs/ZfsArcStats.h"
@@ -48,11 +44,11 @@ typedef struct FreeBSDProcessList_ {
 
    Hashtable* ttys;
 
-   unsigned long   *cp_time_o;
-   unsigned long   *cp_time_n;
+   unsigned long* cp_time_o;
+   unsigned long* cp_time_n;
 
-   unsigned long  *cp_times_o;
-   unsigned long  *cp_times_n;
+   unsigned long* cp_times_o;
+   unsigned long* cp_times_n;
 
 } FreeBSDProcessList;
 

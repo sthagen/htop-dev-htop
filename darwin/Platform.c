@@ -17,6 +17,7 @@ in the source distribution for its full text.
 #include "DateMeter.h"
 #include "DateTimeMeter.h"
 #include "HostnameMeter.h"
+#include "ProcessLocksScreen.h"
 #include "UptimeMeter.h"
 #include "zfs/ZfsArcMeter.h"
 #include "zfs/ZfsCompressedArcMeter.h"
@@ -25,8 +26,12 @@ in the source distribution for its full text.
 #include <math.h>
 #include <stdlib.h>
 
+#include <CoreFoundation/CoreFoundation.h>
+#include <CoreFoundation/CFString.h>
+#include <IOKit/ps/IOPowerSources.h>
+#include <IOKit/ps/IOPSKeys.h>
 
-ProcessField Platform_defaultFields[] = { PID, USER, PRIORITY, NICE, M_SIZE, M_RESIDENT, STATE, PERCENT_CPU, PERCENT_MEM, TIME, COMM, 0 };
+ProcessField Platform_defaultFields[] = { PID, USER, PRIORITY, NICE, M_VIRT, M_RESIDENT, STATE, PERCENT_CPU, PERCENT_MEM, TIME, COMM, 0 };
 
 const SignalItem Platform_signals[] = {
    { .name = " 0 Cancel",    .number =  0 },
@@ -83,7 +88,7 @@ ProcessFieldData Process_fields[] = {
    [STARTTIME] = { .name = "STARTTIME", .title = "START ", .description = "Time the process was started", .flags = 0, },
 
    [PROCESSOR] = { .name = "PROCESSOR", .title = "CPU ", .description = "Id of the CPU the process last executed on", .flags = 0, },
-   [M_SIZE] = { .name = "M_SIZE", .title = " VIRT ", .description = "Total program size in virtual memory", .flags = 0, },
+   [M_VIRT] = { .name = "M_VIRT", .title = " VIRT ", .description = "Total program size in virtual memory", .flags = 0, },
    [M_RESIDENT] = { .name = "M_RESIDENT", .title = "  RES ", .description = "Resident set size, size of the text and data sections, plus stack usage", .flags = 0, },
    [ST_UID] = { .name = "ST_UID", .title = "  UID ", .description = "User ID of the process owner", .flags = 0, },
    [PERCENT_CPU] = { .name = "PERCENT_CPU", .title = "CPU% ", .description = "Percentage of the CPU time the process used in the last sampling", .flags = 0, },
@@ -126,11 +131,20 @@ const MeterClass* const Platform_meterTypes[] = {
    NULL
 };
 
-void Platform_setBindings(Htop_Action* keys) {
-   (void) keys;
+int Platform_numberOfFields = 100;
+
+void Platform_init(void) {
+   /* no platform-specific setup needed */
 }
 
-int Platform_numberOfFields = 100;
+void Platform_done(void) {
+   /* no platform-specific cleanup needed */
+}
+
+void Platform_setBindings(Htop_Action* keys) {
+   /* no platform-specific key bindings */
+   (void) keys;
+}
 
 int Platform_getUptime() {
    struct timeval bootTime, currTime;
@@ -149,7 +163,7 @@ int Platform_getUptime() {
 void Platform_getLoadAverage(double* one, double* five, double* fifteen) {
    double results[3];
 
-   if(3 == getloadavg(results, 3)) {
+   if (3 == getloadavg(results, 3)) {
       *one = results[0];
       *five = results[1];
       *fifteen = results[2];
@@ -176,7 +190,7 @@ ProcessPidColumn Process_pidColumns[] = {
 };
 
 static double Platform_setCPUAverageValues(Meter* mtr) {
-   const ProcessList *dpl = mtr->pl;
+   const ProcessList* dpl = mtr->pl;
    int cpus = dpl->cpuCount;
    double sumNice = 0.0;
    double sumNormal = 0.0;
@@ -200,22 +214,22 @@ double Platform_setCPUValues(Meter* mtr, int cpu) {
       return Platform_setCPUAverageValues(mtr);
    }
 
-   const DarwinProcessList *dpl = (const DarwinProcessList *)mtr->pl;
-   const processor_cpu_load_info_t prev = &dpl->prev_load[cpu-1];
-   const processor_cpu_load_info_t curr = &dpl->curr_load[cpu-1];
+   const DarwinProcessList* dpl = (const DarwinProcessList*)mtr->pl;
+   const processor_cpu_load_info_t prev = &dpl->prev_load[cpu - 1];
+   const processor_cpu_load_info_t curr = &dpl->curr_load[cpu - 1];
    double total = 0;
 
    /* Take the sums */
-   for(size_t i = 0; i < CPU_STATE_MAX; ++i) {
+   for (size_t i = 0; i < CPU_STATE_MAX; ++i) {
       total += (double)curr->cpu_ticks[i] - (double)prev->cpu_ticks[i];
    }
 
    mtr->values[CPU_METER_NICE]
-           = ((double)curr->cpu_ticks[CPU_STATE_NICE] - (double)prev->cpu_ticks[CPU_STATE_NICE])* 100.0 / total;
+      = ((double)curr->cpu_ticks[CPU_STATE_NICE] - (double)prev->cpu_ticks[CPU_STATE_NICE]) * 100.0 / total;
    mtr->values[CPU_METER_NORMAL]
-           = ((double)curr->cpu_ticks[CPU_STATE_USER] - (double)prev->cpu_ticks[CPU_STATE_USER])* 100.0 / total;
+      = ((double)curr->cpu_ticks[CPU_STATE_USER] - (double)prev->cpu_ticks[CPU_STATE_USER]) * 100.0 / total;
    mtr->values[CPU_METER_KERNEL]
-           = ((double)curr->cpu_ticks[CPU_STATE_SYSTEM] - (double)prev->cpu_ticks[CPU_STATE_SYSTEM])* 100.0 / total;
+      = ((double)curr->cpu_ticks[CPU_STATE_SYSTEM] - (double)prev->cpu_ticks[CPU_STATE_SYSTEM]) * 100.0 / total;
 
    mtr->curItems = 3;
 
@@ -223,12 +237,13 @@ double Platform_setCPUValues(Meter* mtr, int cpu) {
    total = mtr->values[CPU_METER_NICE] + mtr->values[CPU_METER_NORMAL] + mtr->values[CPU_METER_KERNEL];
 
    mtr->values[CPU_METER_FREQUENCY] = NAN;
+   mtr->values[CPU_METER_TEMPERATURE] = NAN;
 
    return CLAMP(total, 0.0, 100.0);
 }
 
 void Platform_setMemoryValues(Meter* mtr) {
-   const DarwinProcessList *dpl = (const DarwinProcessList *)mtr->pl;
+   const DarwinProcessList* dpl = (const DarwinProcessList*)mtr->pl;
    const struct vm_statistics* vm = &dpl->vm_stats;
    double page_K = (double)vm_page_size / (double)1024;
 
@@ -239,13 +254,13 @@ void Platform_setMemoryValues(Meter* mtr) {
 }
 
 void Platform_setSwapValues(Meter* mtr) {
-  int mib[2] = {CTL_VM, VM_SWAPUSAGE};
-  struct xsw_usage swapused;
-  size_t swlen = sizeof(swapused);
-  sysctl(mib, 2, &swapused, &swlen, NULL, 0);
+   int mib[2] = {CTL_VM, VM_SWAPUSAGE};
+   struct xsw_usage swapused;
+   size_t swlen = sizeof(swapused);
+   sysctl(mib, 2, &swapused, &swlen, NULL, 0);
 
-  mtr->total = swapused.xsu_total / 1024;
-  mtr->values[0] = swapused.xsu_used / 1024;
+   mtr->total = swapused.xsu_total / 1024;
+   mtr->values[0] = swapused.xsu_used / 1024;
 }
 
 void Platform_setZfsArcValues(Meter* this) {
@@ -283,25 +298,25 @@ char* Platform_getProcessEnv(pid_t pid) {
                p += sizeof(int);
 
                // skip exe
-               p = strchr(p, 0)+1;
+               p = strchr(p, 0) + 1;
 
                // skip padding
-               while(!*p && p < endp)
+               while (!*p && p < endp)
                   ++p;
 
                // skip argv
-               for (; argc-- && p < endp; p = strrchr(p, 0)+1)
+               for (; argc-- && p < endp; p = strrchr(p, 0) + 1)
                   ;
 
                // skip padding
-               while(!*p && p < endp)
+               while (!*p && p < endp)
                   ++p;
 
                size_t size = endp - p;
-               env = xMalloc(size+2);
+               env = xMalloc(size + 2);
                memcpy(env, p, size);
                env[size] = 0;
-               env[size+1] = 0;
+               env[size + 1] = 0;
             }
          }
          free(buf);
@@ -311,20 +326,95 @@ char* Platform_getProcessEnv(pid_t pid) {
    return env;
 }
 
+char* Platform_getInodeFilename(pid_t pid, ino_t inode) {
+    (void)pid;
+    (void)inode;
+    return NULL;
+}
+
+FileLocks_ProcessData* Platform_getProcessLocks(pid_t pid) {
+    (void)pid;
+    return NULL;
+}
+
 bool Platform_getDiskIO(DiskIOData* data) {
    // TODO
    (void)data;
    return false;
 }
 
-bool Platform_getNetworkIO(unsigned long int *bytesReceived,
-                           unsigned long int *packetsReceived,
-                           unsigned long int *bytesTransmitted,
-                           unsigned long int *packetsTransmitted) {
+bool Platform_getNetworkIO(unsigned long int* bytesReceived,
+                           unsigned long int* packetsReceived,
+                           unsigned long int* bytesTransmitted,
+                           unsigned long int* packetsTransmitted) {
    // TODO
    *bytesReceived = 0;
    *packetsReceived = 0;
    *bytesTransmitted = 0;
    *packetsTransmitted = 0;
    return false;
+}
+
+void Platform_getBattery(double* percent, ACPresence* isOnAC) {
+   CFTypeRef power_sources = IOPSCopyPowerSourcesInfo();
+
+   *percent = NAN;
+   *isOnAC = AC_ERROR;
+
+   if (NULL == power_sources)
+      return;
+
+   CFArrayRef list = IOPSCopyPowerSourcesList(power_sources);
+   CFDictionaryRef battery = NULL;
+   int len;
+
+   if (NULL == list) {
+      CFRelease(power_sources);
+
+      return;
+   }
+
+   len = CFArrayGetCount(list);
+
+   /* Get the battery */
+   for (int i = 0; i < len && battery == NULL; ++i) {
+      CFDictionaryRef candidate = IOPSGetPowerSourceDescription(power_sources,
+                                  CFArrayGetValueAtIndex(list, i)); /* GET rule */
+      CFStringRef type;
+
+      if (NULL != candidate) {
+         type = (CFStringRef) CFDictionaryGetValue(candidate,
+                CFSTR(kIOPSTransportTypeKey)); /* GET rule */
+
+         if (kCFCompareEqualTo == CFStringCompare(type, CFSTR(kIOPSInternalType), 0)) {
+            CFRetain(candidate);
+            battery = candidate;
+         }
+      }
+   }
+
+   if (NULL != battery) {
+      /* Determine the AC state */
+      CFStringRef power_state = CFDictionaryGetValue(battery, CFSTR(kIOPSPowerSourceStateKey));
+
+      *isOnAC = (kCFCompareEqualTo == CFStringCompare(power_state, CFSTR(kIOPSACPowerValue), 0))
+              ? AC_PRESENT
+              : AC_ABSENT;
+
+      /* Get the percentage remaining */
+      double current;
+      double max;
+
+      CFNumberGetValue(CFDictionaryGetValue(battery, CFSTR(kIOPSCurrentCapacityKey)),
+                       kCFNumberDoubleType, &current);
+      CFNumberGetValue(CFDictionaryGetValue(battery, CFSTR(kIOPSMaxCapacityKey)),
+                       kCFNumberDoubleType, &max);
+
+      *percent = (current * 100.0) / max;
+
+      CFRelease(battery);
+   }
+
+   CFRelease(list);
+   CFRelease(power_sources);
 }

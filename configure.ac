@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.65)
-AC_INIT([htop],[3.0.3-dev],[htop@groups.io])
+AC_INIT([htop],[3.0.4-dev],[htop@groups.io])
 
 AC_CONFIG_SRCDIR([htop.c])
 AC_CONFIG_AUX_DIR([.])
@@ -83,12 +83,23 @@ AC_HEADER_STDBOOL
 AC_C_CONST
 AC_TYPE_PID_T
 AC_TYPE_UID_T
+AC_TYPE_UINT8_T
+AC_TYPE_UINT16_T
+AC_TYPE_UINT32_T
+AC_TYPE_UINT64_T
 
 # Checks for library functions and compiler features.
 # ----------------------------------------------------------------------
 AC_FUNC_CLOSEDIR_VOID
 AC_FUNC_STAT
-AC_CHECK_FUNCS([fstatat memmove strncasecmp strstr strdup])
+AC_CHECK_FUNCS([\
+   faccessat\
+   fstatat\
+   openat\
+   readlinkat\
+])
+
+AC_SEARCH_LIBS([dlopen], [dl dld])
 
 save_cflags="${CFLAGS}"
 CFLAGS="${CFLAGS} -std=c99"
@@ -121,11 +132,6 @@ if test "x$enable_openvz" = xyes; then
    AC_DEFINE(HAVE_OPENVZ, 1, [Define if openvz support enabled.])
 fi
 
-AC_ARG_ENABLE(cgroup, [AS_HELP_STRING([--enable-cgroup], [enable cgroups support])], ,enable_cgroup="no")
-if test "x$enable_cgroup" = xyes; then
-   AC_DEFINE(HAVE_CGROUP, 1, [Define if cgroup support enabled.])
-fi
-
 AC_ARG_ENABLE(vserver, [AS_HELP_STRING([--enable-vserver], [enable VServer support])], ,enable_vserver="no")
 if test "x$enable_vserver" = xyes; then
     AC_DEFINE(HAVE_VSERVER, 1, [Define if vserver support enabled.])
@@ -135,11 +141,6 @@ AC_ARG_ENABLE(ancient_vserver, [AS_HELP_STRING([--enable-ancient-vserver], [enab
 if test "x$enable_ancient_vserver" = xyes; then
     AC_DEFINE(HAVE_VSERVER, 1, [Define if vserver support enabled.])
     AC_DEFINE(HAVE_ANCIENT_VSERVER, 1, [Define if ancient vserver support enabled.])
-fi
-
-AC_ARG_ENABLE(taskstats, [AS_HELP_STRING([--enable-taskstats], [enable per-task IO Stats (taskstats kernel sup required)])], ,enable_taskstats="yes")
-if test "x$enable_taskstats" = xyes; then
-    AC_DEFINE(HAVE_TASKSTATS, 1, [Define if taskstats support enabled.])
 fi
 
 # HTOP_CHECK_SCRIPT(LIBNAME, FUNCTION, DEFINE, CONFIG_SCRIPT, ELSE_PART)
@@ -306,6 +307,14 @@ then
    ])
 fi
 
+AC_ARG_WITH(sensors, [AS_HELP_STRING([--with-sensors], [Compile with libsensors support for reading temperature data. Only requires libsensors headers at compile time, at runtime libsensors is loaded via dlopen.])],, with_sensors="check")
+if test "x$with_sensors" = xyes; then
+   AC_CHECK_HEADERS([sensors/sensors.h], [], [missing_headers="$missing_headers $ac_header"])
+elif test "x$with_sensors" = xcheck; then
+   with_sensors=yes
+   AC_CHECK_HEADERS([sensors/sensors.h], [], [with_sensors=no])
+fi
+
 AM_CFLAGS="\
  -Wall\
  -Wcast-align\
@@ -378,13 +387,13 @@ AC_MSG_RESULT([
   platform:                  $my_htop_platform
   (Linux) proc directory:    $PROCDIR
   (Linux) openvz:            $enable_openvz
-  (Linux) cgroup:            $enable_cgroup
   (Linux) vserver:           $enable_vserver
   (Linux) ancient vserver:   $enable_ancient_vserver
-  (Linux) taskstats:         $enable_taskstats
   (Linux) affinity:          $enable_linux_affinity
   (Linux) delay accounting:  $enable_delayacct
+  (Linux) sensors:           $with_sensors
   unicode:                   $enable_unicode
-  hwlock:                    $enable_hwloc
+  hwloc:                     $enable_hwloc
   setuid:                    $enable_setuid
+  debug:                     $enable_debug
 ])

@@ -17,7 +17,7 @@ in the source distribution for its full text.
 #endif
 
 typedef struct Vector_ {
-   Object **array;
+   Object** array;
    const ObjectClass* type;
    int arraySize;
    int growthRate;
@@ -52,9 +52,9 @@ void Vector_set(Vector* this, int idx, void* data_);
 
 #ifndef NDEBUG
 
-Object* Vector_get(Vector* this, int idx);
+Object* Vector_get(const Vector* this, int idx);
 int Vector_size(const Vector* this);
-int Vector_count(const Vector* this);
+unsigned int Vector_count(const Vector* this);
 
 #else /* NDEBUG */
 

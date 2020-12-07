@@ -11,6 +11,7 @@ in the source distribution for its full text.
 #include "Action.h"
 #include "BatteryMeter.h"
 #include "DiskIOMeter.h"
+#include "ProcessLocksScreen.h"
 #include "SignalsPanel.h"
 #include "UnsupportedProcess.h"
 
@@ -24,13 +25,17 @@ extern ProcessFieldData Process_fields[];
 
 extern const MeterClass* const Platform_meterTypes[];
 
-void Platform_setBindings(Htop_Action* keys);
-
 extern int Platform_numberOfFields;
 
 extern char Process_pidFormat[20];
 
 extern ProcessPidColumn Process_pidColumns[];
+
+void Platform_init(void);
+
+void Platform_done(void);
+
+void Platform_setBindings(Htop_Action* keys);
 
 int Platform_getUptime(void);
 
@@ -48,11 +53,17 @@ bool Process_isThread(const Process* this);
 
 char* Platform_getProcessEnv(pid_t pid);
 
+char* Platform_getInodeFilename(pid_t pid, ino_t inode);
+
+FileLocks_ProcessData* Platform_getProcessLocks(pid_t pid);
+
 bool Platform_getDiskIO(DiskIOData* data);
 
-bool Platform_getNetworkIO(unsigned long int *bytesReceived,
-                           unsigned long int *packetsReceived,
-                           unsigned long int *bytesTransmitted,
-                           unsigned long int *packetsTransmitted);
+bool Platform_getNetworkIO(unsigned long int* bytesReceived,
+                           unsigned long int* packetsReceived,
+                           unsigned long int* bytesTransmitted,
+                           unsigned long int* packetsTransmitted);
+
+void Platform_getBattery(double *percent, ACPresence *isOnAC);
 
 #endif

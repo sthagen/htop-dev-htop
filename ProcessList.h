@@ -42,6 +42,9 @@ typedef struct ProcessList_ {
    Hashtable* processTable;
    UsersTable* usersTable;
 
+   Hashtable* displayTreeSet;
+   Hashtable* draftingTreeSet;
+
    Panel* panel;
    int following;
    uid_t userId;
@@ -60,8 +63,6 @@ typedef struct ProcessList_ {
 
    unsigned long long int totalMem;
    unsigned long long int usedMem;
-   unsigned long long int freeMem;
-   unsigned long long int sharedMem;
    unsigned long long int buffersMem;
    unsigned long long int cachedMem;
    unsigned long long int totalSwap;
@@ -70,6 +71,7 @@ typedef struct ProcessList_ {
 
    int cpuCount;
 
+   time_t scanTs;
 } ProcessList;
 
 ProcessList* ProcessList_new(UsersTable* usersTable, Hashtable* pidMatchList, uid_t userId);
@@ -95,7 +97,7 @@ int ProcessList_size(ProcessList* this);
 
 void ProcessList_sort(ProcessList* this);
 
-ProcessField ProcessList_keyAt(ProcessList* this, int at);
+ProcessField ProcessList_keyAt(const ProcessList* this, int at);
 
 void ProcessList_expandTree(ProcessList* this);
 

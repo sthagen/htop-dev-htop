@@ -9,10 +9,16 @@ in the source distribution for its full text.
 
 #include <devstat.h>
 #include <math.h>
+#include <stdint.h>
+#include <stdlib.h>
 #include <time.h>
 #include <net/if.h>
 #include <net/if_mib.h>
+#include <sys/_types.h>
+#include <sys/devicestat.h>
+#include <sys/param.h>
 #include <sys/resource.h>
+#include <sys/socket.h>
 #include <sys/sysctl.h>
 #include <sys/time.h>
 #include <sys/types.h>
@@ -31,14 +37,17 @@ in the source distribution for its full text.
 #include "MemoryMeter.h"
 #include "Meter.h"
 #include "NetworkIOMeter.h"
+#include "ProcessList.h"
+#include "Settings.h"
 #include "SwapMeter.h"
 #include "TasksMeter.h"
 #include "UptimeMeter.h"
+#include "XUtils.h"
 #include "zfs/ZfsArcMeter.h"
 #include "zfs/ZfsCompressedArcMeter.h"
 
 
-ProcessField Platform_defaultFields[] = { PID, USER, PRIORITY, NICE, M_SIZE, M_RESIDENT, STATE, PERCENT_CPU, PERCENT_MEM, TIME, COMM, 0 };
+ProcessField Platform_defaultFields[] = { PID, USER, PRIORITY, NICE, M_VIRT, M_RESIDENT, STATE, PERCENT_CPU, PERCENT_MEM, TIME, COMM, 0 };
 
 int Platform_numberOfFields = LAST_PROCESSFIELD;
 
@@ -81,10 +90,6 @@ const SignalItem Platform_signals[] = {
 
 const unsigned int Platform_numberOfSignals = ARRAYSIZE(Platform_signals);
 
-void Platform_setBindings(Htop_Action* keys) {
-   (void) keys;
-}
-
 const MeterClass* const Platform_meterTypes[] = {
    &CPUMeter_class,
    &ClockMeter_class,
@@ -117,6 +122,19 @@ const MeterClass* const Platform_meterTypes[] = {
    &NetworkIOMeter_class,
    NULL
 };
+
+void Platform_init(void) {
+   /* no platform-specific setup needed */
+}
+
+void Platform_done(void) {
+   /* no platform-specific cleanup needed */
+}
+
+void Platform_setBindings(Htop_Action* keys) {
+   /* no platform-specific key bindings */
+   (void) keys;
+}
 
 int Platform_getUptime() {
    struct timeval bootTime, currTime;
@@ -165,10 +183,10 @@ double Platform_setCPUValues(Meter* this, int cpu) {
    const CPUData* cpuData;
 
    if (cpus == 1) {
-     // single CPU box has everything in fpl->cpus[0]
-     cpuData = &(fpl->cpus[0]);
+      // single CPU box has everything in fpl->cpus[0]
+      cpuData = &(fpl->cpus[0]);
    } else {
-     cpuData = &(fpl->cpus[cpu]);
+      cpuData = &(fpl->cpus[cpu]);
    }
 
    double  percent;
@@ -180,16 +198,17 @@ double Platform_setCPUValues(Meter* this, int cpu) {
       v[CPU_METER_KERNEL]  = cpuData->systemPercent;
       v[CPU_METER_IRQ]     = cpuData->irqPercent;
       this->curItems = 4;
-      percent = v[0]+v[1]+v[2]+v[3];
+      percent = v[0] + v[1] + v[2] + v[3];
    } else {
       v[2] = cpuData->systemAllPercent;
       this->curItems = 3;
-      percent = v[0]+v[1]+v[2];
+      percent = v[0] + v[1] + v[2];
    }
 
    percent = CLAMP(percent, 0.0, 100.0);
 
    v[CPU_METER_FREQUENCY] = NAN;
+   v[CPU_METER_TEMPERATURE] = NAN;
 
    return percent;
 }
@@ -229,18 +248,29 @@ char* Platform_getProcessEnv(pid_t pid) {
    char* env = xMalloc(capacity);
 
    int err = sysctl(mib, 4, env, &capacity, NULL, 0);
-   if (err) {
+   if (err || capacity == 0) {
       free(env);
       return NULL;
    }
 
-   if (env[capacity-1] || env[capacity-2]) {
-      env = xRealloc(env, capacity+2);
+   if (env[capacity - 1] || env[capacity - 2]) {
+      env = xRealloc(env, capacity + 2);
       env[capacity] = 0;
-      env[capacity+1] = 0;
+      env[capacity + 1] = 0;
    }
 
    return env;
+}
+
+char* Platform_getInodeFilename(pid_t pid, ino_t inode) {
+    (void)pid;
+    (void)inode;
+    return NULL;
+}
+
+FileLocks_ProcessData* Platform_getProcessLocks(pid_t pid) {
+    (void)pid;
+    return NULL;
 }
 
 bool Platform_getDiskIO(DiskIOData* data) {
@@ -283,10 +313,10 @@ bool Platform_getDiskIO(DiskIOData* data) {
    return true;
 }
 
-bool Platform_getNetworkIO(unsigned long int *bytesReceived,
-                           unsigned long int *packetsReceived,
-                           unsigned long int *bytesTransmitted,
-                           unsigned long int *packetsTransmitted) {
+bool Platform_getNetworkIO(unsigned long int* bytesReceived,
+                           unsigned long int* packetsReceived,
+                           unsigned long int* bytesTransmitted,
+                           unsigned long int* packetsTransmitted) {
    int r;
 
    // get number of interfaces
@@ -325,4 +355,20 @@ bool Platform_getNetworkIO(unsigned long int *bytesReceived,
    *bytesTransmitted = bytesTransmittedSum;
    *packetsTransmitted = packetsTransmittedSum;
    return true;
+}
+
+void Platform_getBattery(double* percent, ACPresence* isOnAC) {
+   int life;
+   size_t life_len = sizeof(life);
+   if (sysctlbyname("hw.acpi.battery.life", &life, &life_len, NULL, 0) == -1)
+      *percent = NAN;
+   else
+      *percent = life;
+
+   int acline;
+   size_t acline_len = sizeof(acline);
+   if (sysctlbyname("hw.acpi.acline", &acline, &acline_len, NULL, 0) == -1)
+      *isOnAC = AC_ERROR;
+   else
+      *isOnAC = acline == 0 ? AC_ABSENT : AC_PRESENT;
 }

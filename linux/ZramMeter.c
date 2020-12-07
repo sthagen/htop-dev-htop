@@ -2,13 +2,16 @@
 
 #include "CRT.h"
 #include "Meter.h"
+#include "Object.h"
 #include "Platform.h"
+#include "RichString.h"
+
 
 static const int ZramMeter_attributes[] = {
    ZRAM
 };
 
-static void ZramMeter_updateValues(Meter* this, char* buffer, int size) {
+static void ZramMeter_updateValues(Meter* this, char* buffer, size_t size) {
    int written;
 
    Platform_setZramValues(this);
@@ -17,29 +20,18 @@ static void ZramMeter_updateValues(Meter* this, char* buffer, int size) {
    this->curItems = 1;
 
    written = Meter_humanUnit(buffer, this->values[0], size);
-   buffer += written;
-   size -= written;
-   if(size <= 0) {
-      return;
-   }
-   *buffer++ = '(';
-   size--;
-   if(size <= 0) {
-      return;
-   }
+   METER_BUFFER_CHECK(buffer, size, written);
+
+   METER_BUFFER_APPEND_CHR(buffer, size, '(');
+
    written = Meter_humanUnit(buffer, this->values[1], size);
-   buffer += written;
-   size -= written;
-   if(size <= 0) {
-      return;
-   }
-   *buffer++ = ')';
-   size--;
-   if ((size -= written) > 0) {
-      *buffer++ = '/';
-      size--;
-      Meter_humanUnit(buffer, this->total, size);
-   }
+   METER_BUFFER_CHECK(buffer, size, written);
+
+   METER_BUFFER_APPEND_CHR(buffer, size, ')');
+
+   METER_BUFFER_APPEND_CHR(buffer, size, '/');
+
+   Meter_humanUnit(buffer, this->total, size);
 }
 
 static void ZramMeter_display(const Object* cast, RichString* out) {
