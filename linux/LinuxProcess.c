@@ -25,6 +25,8 @@ in the source distribution for its full text.
 
 /* semi-global */
 long long btime;
+int pageSize;
+int pageSizeKB;
 
 /* Used to identify kernel threads in Comm and Exe columns */
 static const char *const kthreadID = "KTHREAD";
@@ -536,7 +538,7 @@ static void LinuxProcess_writeCommand(const Process* this, int attr, int baseAtt
    if(lp->procExeDeleted)
       baseAttr = CRT_colors[FAILED_READ];
 
-   RichString_append(str, attr, lp->mergedCommand.str);
+   RichString_appendWide(str, attr, lp->mergedCommand.str);
 
    if (lp->mergedCommand.commEnd) {
       if (!lp->mergedCommand.separateComm && commStart == baseStart && highlightBaseName) {
@@ -605,10 +607,11 @@ static void LinuxProcess_writeCommandField(const Process *this, RichString *str,
             buf = stpcpy(buf, "   ");
          }
       }
+
       n -= (buf - buffer);
-      const char* draw = CRT_treeStr[lastItem ? (this->settings->direction == 1 ? TREE_STR_BEND : TREE_STR_TEND) : TREE_STR_RTEE];
+      const char* draw = CRT_treeStr[lastItem ? TREE_STR_BEND : TREE_STR_RTEE];
       xSnprintf(buf, n, "%s%s ", draw, this->showChildren ? CRT_treeStr[TREE_STR_SHUT] : CRT_treeStr[TREE_STR_OPEN] );
-      RichString_append(str, CRT_colors[PROCESS_TREE], buffer);
+      RichString_appendWide(str, CRT_colors[PROCESS_TREE], buffer);
       LinuxProcess_writeCommand(this, attr, baseattr, str);
    }
 }
@@ -631,19 +634,19 @@ static void LinuxProcess_writeField(const Process* this, RichString* str, Proces
    }
    case CMINFLT: Process_colorNumber(str, lp->cminflt, coloring); return;
    case CMAJFLT: Process_colorNumber(str, lp->cmajflt, coloring); return;
-   case M_DRS: Process_humanNumber(str, lp->m_drs * CRT_pageSizeKB, coloring); return;
-   case M_DT: Process_humanNumber(str, lp->m_dt * CRT_pageSizeKB, coloring); return;
+   case M_DRS: Process_humanNumber(str, lp->m_drs * pageSizeKB, coloring); return;
+   case M_DT: Process_humanNumber(str, lp->m_dt * pageSizeKB, coloring); return;
    case M_LRS:
       if (lp->m_lrs) {
-         Process_humanNumber(str, lp->m_lrs * CRT_pageSizeKB, coloring);
+         Process_humanNumber(str, lp->m_lrs * pageSizeKB, coloring);
          return;
       }
 
       attr = CRT_colors[PROCESS_SHADOW];
       xSnprintf(buffer, n, "  N/A ");
       break;
-   case M_TRS: Process_humanNumber(str, lp->m_trs * CRT_pageSizeKB, coloring); return;
-   case M_SHARE: Process_humanNumber(str, lp->m_share * CRT_pageSizeKB, coloring); return;
+   case M_TRS: Process_humanNumber(str, lp->m_trs * pageSizeKB, coloring); return;
+   case M_SHARE: Process_humanNumber(str, lp->m_share * pageSizeKB, coloring); return;
    case M_PSS: Process_humanNumber(str, lp->m_pss, coloring); return;
    case M_SWAP: Process_humanNumber(str, lp->m_swap, coloring); return;
    case M_PSSWP: Process_humanNumber(str, lp->m_psswp, coloring); return;
@@ -757,7 +760,7 @@ static void LinuxProcess_writeField(const Process* this, RichString* str, Proces
       Process_writeField(this, str, field);
       return;
    }
-   RichString_append(str, attr, buffer);
+   RichString_appendWide(str, attr, buffer);
 }
 
 static long LinuxProcess_compare(const void* v1, const void* v2) {
