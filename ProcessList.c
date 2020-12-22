@@ -10,8 +10,8 @@ in the source distribution for its full text.
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 
+#include "Compat.h"
 #include "CRT.h"
 #include "Hashtable.h"
 #include "Macros.h"
@@ -79,21 +79,40 @@ void ProcessList_setPanel(ProcessList* this, Panel* panel) {
    this->panel = panel;
 }
 
+static const char* alignedProcessFieldTitle(ProcessField field) {
+   const char* title = Process_fields[field].title;
+   if (!title)
+      return "- ";
+
+   if (!Process_fields[field].pidColumn)
+      return title;
+
+   static char titleBuffer[PROCESS_MAX_PID_DIGITS + /* space */ 1 + /* null-terminator */ + 1];
+   xSnprintf(titleBuffer, sizeof(titleBuffer), "%*s ", Process_pidDigits, title);
+
+   return titleBuffer;
+}
+
 void ProcessList_printHeader(ProcessList* this, RichString* header) {
    RichString_prune(header);
 
-   const ProcessField* fields = this->settings->fields;
+   const Settings* settings = this->settings;
+   const ProcessField* fields = settings->fields;
+
+   ProcessField key = Settings_getActiveSortKey(settings);
 
    for (int i = 0; fields[i]; i++) {
-      const char* field = Process_fields[fields[i]].title;
-      if (!field) {
-         field = "- ";
+      int color;
+      if (settings->treeView && settings->treeViewAlwaysByPID) {
+         color = CRT_colors[PANEL_HEADER_FOCUS];
+      } else if (key == fields[i]) {
+         color = CRT_colors[PANEL_SELECTION_FOCUS];
+      } else {
+         color = CRT_colors[PANEL_HEADER_FOCUS];
       }
 
-      int color = (this->settings->sortKey == fields[i]) ?
-         CRT_colors[PANEL_SELECTION_FOCUS] : CRT_colors[PANEL_HEADER_FOCUS];
-      RichString_appendWide(header, color, field);
-      if (COMM == fields[i] && this->settings->showMergedCommand) {
+      RichString_appendWide(header, color, alignedProcessFieldTitle(fields[i]));
+      if (COMM == fields[i] && settings->showMergedCommand) {
          RichString_appendAscii(header, color, "(merged)");
       }
    }
@@ -149,7 +168,7 @@ int ProcessList_size(ProcessList* this) {
 //
 // The algorithm is based on `depth-first search`,
 // even though `breadth-first search` approach may be more efficient on first glance,
-// after comparision it may be not, as it's not safe to go deeper without first updating the tree structure.
+// after comparison it may be not, as it's not safe to go deeper without first updating the tree structure.
 // If it would be safe that approach would likely bring an advantage in performance.
 //
 // Each call of the function looks for a 'layer'. A 'layer' is a list of processes with the same depth.
@@ -347,7 +366,7 @@ static long ProcessList_treeProcessCompareByPID(const void* v1, const void* v2) 
 static void ProcessList_buildTree(ProcessList* this) {
    int node_counter = 1;
    int node_index = 0;
-   int direction = this->settings->direction;
+   int direction = Settings_getActiveDirection(this->settings);
 
    // Sort by PID
    Vector_quickSortCustomCompare(this->processes, ProcessList_treeProcessCompareByPID);
@@ -446,12 +465,7 @@ ProcessField ProcessList_keyAt(const ProcessList* this, int at) {
    const ProcessField* fields = this->settings->fields;
    ProcessField field;
    for (int i = 0; (field = fields[i]); i++) {
-      const char* title = Process_fields[field].title;
-      if (!title) {
-         title = "- ";
-      }
-
-      int len = strlen(title);
+      int len = strlen(alignedProcessFieldTitle(field));
       if (at >= x && at <= x + len) {
          return field;
       }
@@ -538,8 +552,10 @@ void ProcessList_scan(ProcessList* this, bool pauseProcessUpdate) {
    if (!firstScanDone) {
       this->scanTs = 0;
       firstScanDone = true;
-   } else if (clock_gettime(CLOCK_MONOTONIC, &now) == 0) {
-      this->scanTs = now.tv_sec;
+   } else if (Compat_clock_monotonic_gettime(&now) == 0) {
+      // save time in millisecond, so with a delay in deciseconds
+      // there are no irregularities
+      this->scanTs = 1000 * now.tv_sec + now.tv_nsec / 1000000;
    }
 
    ProcessList_goThroughEntries(this, false);
@@ -555,7 +571,7 @@ void ProcessList_scan(ProcessList* this, bool pauseProcessUpdate) {
          // process no longer exists
          if (this->settings->highlightChanges && p->wasShown) {
             // mark tombed
-            p->tombTs = this->scanTs + this->settings->highlightDelaySecs;
+            p->tombTs = this->scanTs + 1000 * this->settings->highlightDelaySecs;
          } else {
             // immediately remove
             ProcessList_remove(this, p);

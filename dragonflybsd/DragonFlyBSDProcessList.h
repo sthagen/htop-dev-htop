@@ -11,16 +11,12 @@ in the source distribution for its full text.
 #include <kvm.h>
 #include <sys/param.h>
 #include <osreldate.h>
-#include <sys/kinfo.h>
-#include <kinfo.h>
 #include <sys/jail.h>
 #include <sys/uio.h>
 #include <sys/resource.h>
 #include "Hashtable.h"
 #include "DragonFlyBSDProcess.h"
 
-#define JAIL_ERRMSGLEN 1024
-extern char jail_errmsg[JAIL_ERRMSGLEN];
 
 typedef struct CPUData_ {
    double userPercent;
@@ -54,10 +50,6 @@ typedef struct DragonFlyBSDProcessList_ {
 ProcessList* ProcessList_new(UsersTable* usersTable, Hashtable* pidMatchList, uid_t userId);
 
 void ProcessList_delete(ProcessList* this);
-
-char* DragonFlyBSDProcessList_readProcessName(kvm_t* kd, struct kinfo_proc* kproc, int* basenameEnd);
-
-char* DragonFlyBSDProcessList_readJailName(DragonFlyBSDProcessList* dfpl, int jailid);
 
 void ProcessList_goThroughEntries(ProcessList* super, bool pauseProcessUpdate);
 

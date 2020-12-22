@@ -24,24 +24,22 @@ in the source distribution for its full text.
 
 
 /* semi-global */
-long long btime;
 int pageSize;
 int pageSizeKB;
 
 /* Used to identify kernel threads in Comm and Exe columns */
 static const char *const kthreadID = "KTHREAD";
 
-ProcessFieldData Process_fields[] = {
+const ProcessFieldData Process_fields[LAST_PROCESSFIELD] = {
    [0] = { .name = "", .title = NULL, .description = NULL, .flags = 0, },
-   [PID] = { .name = "PID", .title = "    PID ", .description = "Process/thread ID", .flags = 0, },
+   [PID] = { .name = "PID", .title = "PID", .description = "Process/thread ID", .flags = 0, .pidColumn = true, },
    [COMM] = { .name = "Command", .title = "Command ", .description = "Command line", .flags = 0, },
    [STATE] = { .name = "STATE", .title = "S ", .description = "Process state (S sleeping, R running, D disk, Z zombie, T traced, W paging, I idle)", .flags = 0, },
-   [PPID] = { .name = "PPID", .title = "   PPID ", .description = "Parent process ID", .flags = 0, },
-   [PGRP] = { .name = "PGRP", .title = "   PGRP ", .description = "Process group ID", .flags = 0, },
-   [SESSION] = { .name = "SESSION", .title = "    SID ", .description = "Process's session ID", .flags = 0, },
+   [PPID] = { .name = "PPID", .title = "PPID", .description = "Parent process ID", .flags = 0, .pidColumn = true, },
+   [PGRP] = { .name = "PGRP", .title = "PGRP", .description = "Process group ID", .flags = 0, .pidColumn = true, },
+   [SESSION] = { .name = "SESSION", .title = "SID", .description = "Process's session ID", .flags = 0, .pidColumn = true, },
    [TTY_NR] = { .name = "TTY_NR", .title = "TTY      ", .description = "Controlling terminal", .flags = 0, },
-   [TPGID] = { .name = "TPGID", .title = "  TPGID ", .description = "Process ID of the fg process group of the controlling terminal", .flags = 0, },
-   [FLAGS] = { .name = "FLAGS", .title = NULL, .description = NULL, .flags = 0, },
+   [TPGID] = { .name = "TPGID", .title = "TPGID", .description = "Process ID of the fg process group of the controlling terminal", .flags = 0, .pidColumn = true, },
    [MINFLT] = { .name = "MINFLT", .title = "     MINFLT ", .description = "Number of minor faults which have not required loading a memory page from disk", .flags = 0, },
    [CMINFLT] = { .name = "CMINFLT", .title = "    CMINFLT ", .description = "Children processes' minor faults", .flags = 0, },
    [MAJFLT] = { .name = "MAJFLT", .title = "     MAJFLT ", .description = "Number of major faults which have required loading a memory page from disk", .flags = 0, },
@@ -52,24 +50,7 @@ ProcessFieldData Process_fields[] = {
    [CSTIME] = { .name = "CSTIME", .title = " CSTIME+ ", .description = "Children processes' system CPU time", .flags = 0, },
    [PRIORITY] = { .name = "PRIORITY", .title = "PRI ", .description = "Kernel's internal priority for the process", .flags = 0, },
    [NICE] = { .name = "NICE", .title = " NI ", .description = "Nice value (the higher the value, the more it lets other processes take priority)", .flags = 0, },
-   [ITREALVALUE] = { .name = "ITREALVALUE", .title = NULL, .description = NULL, .flags = 0, },
    [STARTTIME] = { .name = "STARTTIME", .title = "START ", .description = "Time the process was started", .flags = 0, },
-   [VSIZE] = { .name = "VSIZE", .title = NULL, .description = NULL, .flags = 0, },
-   [RSS] = { .name = "RSS", .title = NULL, .description = NULL, .flags = 0, },
-   [RLIM] = { .name = "RLIM", .title = NULL, .description = NULL, .flags = 0, },
-   [STARTCODE] = { .name = "STARTCODE", .title = NULL, .description = NULL, .flags = 0, },
-   [ENDCODE] = { .name = "ENDCODE", .title = NULL, .description = NULL, .flags = 0, },
-   [STARTSTACK] = { .name = "STARTSTACK", .title = NULL, .description = NULL, .flags = 0, },
-   [KSTKESP] = { .name = "KSTKESP", .title = NULL, .description = NULL, .flags = 0, },
-   [KSTKEIP] = { .name = "KSTKEIP", .title = NULL, .description = NULL, .flags = 0, },
-   [SIGNAL] = { .name = "SIGNAL", .title = NULL, .description = NULL, .flags = 0, },
-   [BLOCKED] = { .name = "BLOCKED", .title = NULL, .description = NULL, .flags = 0, },
-   [SSIGIGNORE] = { .name = "SIGIGNORE", .title = NULL, .description = NULL, .flags = 0, },
-   [SIGCATCH] = { .name = "SIGCATCH", .title = NULL, .description = NULL, .flags = 0, },
-   [WCHAN] = { .name = "WCHAN", .title = NULL, .description = NULL, .flags = 0, },
-   [NSWAP] = { .name = "NSWAP", .title = NULL, .description = NULL, .flags = 0, },
-   [CNSWAP] = { .name = "CNSWAP", .title = NULL, .description = NULL, .flags = 0, },
-   [EXIT_SIGNAL] = { .name = "EXIT_SIGNAL", .title = NULL, .description = NULL, .flags = 0, },
    [PROCESSOR] = { .name = "PROCESSOR", .title = "CPU ", .description = "Id of the CPU the process last executed on", .flags = 0, },
    [M_VIRT] = { .name = "M_VIRT", .title = " VIRT ", .description = "Total program size in virtual memory", .flags = 0, },
    [M_RESIDENT] = { .name = "M_RESIDENT", .title = "  RES ", .description = "Resident set size, size of the text and data sections, plus stack usage", .flags = 0, },
@@ -85,10 +66,10 @@ ProcessFieldData Process_fields[] = {
    [USER] = { .name = "USER", .title = "USER      ", .description = "Username of the process owner (or user ID if name cannot be determined)", .flags = 0, },
    [TIME] = { .name = "TIME", .title = "  TIME+  ", .description = "Total time the process has spent in user and system time", .flags = 0, },
    [NLWP] = { .name = "NLWP", .title = "NLWP ", .description = "Number of threads in the process", .flags = 0, },
-   [TGID] = { .name = "TGID", .title = "   TGID ", .description = "Thread group ID (i.e. process ID)", .flags = 0, },
+   [TGID] = { .name = "TGID", .title = "TGID", .description = "Thread group ID (i.e. process ID)", .flags = 0, .pidColumn = true, },
 #ifdef HAVE_OPENVZ
    [CTID] = { .name = "CTID", .title = " CTID    ", .description = "OpenVZ container ID (a.k.a. virtual environment ID)", .flags = PROCESS_FLAG_LINUX_OPENVZ, },
-   [VPID] = { .name = "VPID", .title = "    VPID ", .description = "OpenVZ process ID", .flags = PROCESS_FLAG_LINUX_OPENVZ, },
+   [VPID] = { .name = "VPID", .title = "VPID", .description = "OpenVZ process ID", .flags = PROCESS_FLAG_LINUX_OPENVZ, .pidColumn = true, },
 #endif
 #ifdef HAVE_VSERVER
    [VXID] = { .name = "VXID", .title = " VXID ", .description = "VServer process ID", .flags = PROCESS_FLAG_LINUX_VSERVER, },
@@ -119,20 +100,6 @@ ProcessFieldData Process_fields[] = {
    [PROC_COMM] = { .name = "COMM", .title = "COMM            ", .description = "comm string of the process from /proc/[pid]/comm", .flags = 0, },
    [PROC_EXE] = { .name = "EXE", .title = "EXE             ", .description = "Basename of exe of the process from /proc/[pid]/exe", .flags = 0, },
    [CWD] = { .name ="CWD", .title = "CWD                       ", .description = "The current working directory of the process", .flags = PROCESS_FLAG_LINUX_CWD, },
-   [LAST_PROCESSFIELD] = { .name = "*** report bug! ***", .title = NULL, .description = NULL, .flags = 0, },
-};
-
-ProcessPidColumn Process_pidColumns[] = {
-   { .id = PID, .label = "PID" },
-   { .id = PPID, .label = "PPID" },
-   #ifdef HAVE_OPENVZ
-   { .id = VPID, .label = "VPID" },
-   #endif
-   { .id = TPGID, .label = "TPGID" },
-   { .id = TGID, .label = "TGID" },
-   { .id = PGRP, .label = "PGRP" },
-   { .id = SESSION, .label = "SID" },
-   { .id = 0, .label = NULL },
 };
 
 /* This function returns the string displayed in Command column, so that sorting
@@ -184,6 +151,11 @@ static int LinuxProcess_effectiveIOPriority(const LinuxProcess* this) {
 
    return this->ioPriority;
 }
+
+#ifdef __ANDROID__
+#define SYS_ioprio_get __NR_ioprio_get
+#define SYS_ioprio_set __NR_ioprio_set
+#endif
 
 IOPriority LinuxProcess_updateIOPriority(LinuxProcess* this) {
    IOPriority ioprio = 0;
@@ -396,6 +368,16 @@ void LinuxProcess_makeCommandStr(Process* this) {
    char *str = strStart;
 
    int cmdlineBasenameOffset = lp->procCmdlineBasenameOffset;
+   int cmdlineBasenameEnd = lp->procCmdlineBasenameEnd;
+
+   if (!cmdline) {
+      cmdlineBasenameOffset = 0;
+      cmdlineBasenameEnd = 0;
+      cmdline = "(zombie)";
+   }
+
+   assert(cmdlineBasenameOffset >= 0);
+   assert(cmdlineBasenameOffset <= (int)strlen(cmdline));
 
    if (!showMergedCommand || !procExe || !procComm) {    /* fall back to cmdline */
       if (showMergedCommand && !procExe && procComm && strlen(procComm)) {   /* Prefix column with comm */
@@ -413,11 +395,11 @@ void LinuxProcess_makeCommandStr(Process* this) {
       if (showProgramPath) {
          (void) stpcpyWithNewlineConversion(str, cmdline);
          mc->baseStart = cmdlineBasenameOffset;
-         mc->baseEnd = lp->procCmdlineBasenameEnd;
+         mc->baseEnd = cmdlineBasenameEnd;
       } else {
          (void) stpcpyWithNewlineConversion(str, cmdline + cmdlineBasenameOffset);
          mc->baseStart = 0;
-         mc->baseEnd = lp->procCmdlineBasenameEnd - cmdlineBasenameOffset;
+         mc->baseEnd = cmdlineBasenameEnd - cmdlineBasenameOffset;
       }
 
       if (mc->sep1) {
@@ -431,6 +413,9 @@ void LinuxProcess_makeCommandStr(Process* this) {
    int exeLen = lp->procExeLen;
    int exeBasenameOffset = lp->procExeBasenameOffset;
    int exeBasenameLen = exeLen - exeBasenameOffset;
+
+   assert(exeBasenameOffset >= 0);
+   assert(exeBasenameOffset <= (int)strlen(procExe));
 
    /* Start with copying exe */
    if (showProgramPath) {
@@ -622,7 +607,7 @@ static void LinuxProcess_writeField(const Process* this, RichString* str, Proces
    char buffer[256]; buffer[255] = '\0';
    int attr = CRT_colors[DEFAULT_COLOR];
    size_t n = sizeof(buffer) - 1;
-   switch ((int)field) {
+   switch (field) {
    case TTY_NR: {
       if (lp->ttyDevice) {
          xSnprintf(buffer, n, "%-9s", lp->ttyDevice + 5 /* skip "/dev/" */);
@@ -677,7 +662,7 @@ static void LinuxProcess_writeField(const Process* this, RichString* str, Proces
    }
    #ifdef HAVE_OPENVZ
    case CTID: xSnprintf(buffer, n, "%-8s ", lp->ctid ? lp->ctid : ""); break;
-   case VPID: xSnprintf(buffer, n, Process_pidFormat, lp->vpid); break;
+   case VPID: xSnprintf(buffer, n, "%*d ", Process_pidDigits, lp->vpid); break;
    #endif
    #ifdef HAVE_VSERVER
    case VXID: xSnprintf(buffer, n, "%5u ", lp->vxid); break;
@@ -763,19 +748,11 @@ static void LinuxProcess_writeField(const Process* this, RichString* str, Proces
    RichString_appendWide(str, attr, buffer);
 }
 
-static long LinuxProcess_compare(const void* v1, const void* v2) {
-   const LinuxProcess *p1, *p2;
-   const Settings *settings = ((const Process*)v1)->settings;
+static long LinuxProcess_compareByKey(const Process* v1, const Process* v2, ProcessField key) {
+   const LinuxProcess* p1 = (const LinuxProcess*)v1;
+   const LinuxProcess* p2 = (const LinuxProcess*)v2;
 
-   if (settings->direction == 1) {
-      p1 = (const LinuxProcess*)v1;
-      p2 = (const LinuxProcess*)v2;
-   } else {
-      p2 = (const LinuxProcess*)v1;
-      p1 = (const LinuxProcess*)v2;
-   }
-
-   switch ((int)settings->sortKey) {
+   switch (key) {
    case M_DRS:
       return SPACESHIP_NUMBER(p2->m_drs, p1->m_drs);
    case M_DT:
@@ -861,7 +838,7 @@ static long LinuxProcess_compare(const void* v1, const void* v2) {
    case CWD:
       return SPACESHIP_NULLSTR(p1->cwd, p2->cwd);
    default:
-      return Process_compare(v1, v2);
+      return Process_compareByKey_Base(v1, v2, key);
    }
 }
 
@@ -874,8 +851,9 @@ const ProcessClass LinuxProcess_class = {
       .extends = Class(Process),
       .display = Process_display,
       .delete = Process_delete,
-      .compare = LinuxProcess_compare
+      .compare = Process_compare
    },
    .writeField = LinuxProcess_writeField,
-   .getCommandStr = LinuxProcess_getCommandStr
+   .getCommandStr = LinuxProcess_getCommandStr,
+   .compareByKey = LinuxProcess_compareByKey
 };

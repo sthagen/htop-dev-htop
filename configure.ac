@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.65)
-AC_INIT([htop],[3.0.4-dev],[htop@groups.io])
+AC_INIT([htop],[3.0.5-dev],[htop@groups.io])
 
 AC_CONFIG_SRCDIR([htop.c])
 AC_CONFIG_AUX_DIR([.])
@@ -93,13 +93,16 @@ AC_TYPE_UINT64_T
 AC_FUNC_CLOSEDIR_VOID
 AC_FUNC_STAT
 AC_CHECK_FUNCS([\
+   clock_gettime\
    faccessat\
    fstatat\
+   host_get_clock_service\
    openat\
    readlinkat\
 ])
 
 AC_SEARCH_LIBS([dlopen], [dl dld])
+AC_SEARCH_LIBS([clock_gettime], [rt])
 
 save_cflags="${CFLAGS}"
 CFLAGS="${CFLAGS} -std=c99"
@@ -165,7 +168,7 @@ m4_define([HTOP_CHECK_SCRIPT],
          LIBS="$htop_config_script_libs $LIBS "
          htop_script_success=yes
       ], [
-        CFLAGS="$htop_save_CFLAGS"
+         CFLAGS="$htop_save_CFLAGS"
       ])
       LDFLAGS="$htop_save_LDFLAGS"
    fi
@@ -188,15 +191,15 @@ AC_DEFUN([AX_CHECK_COMPILE_FLAG],
 [AC_PREREQ(2.64)dnl for _AC_LANG_PREFIX and AS_VAR_IF
 AS_VAR_PUSHDEF([CACHEVAR],[ax_cv_check_[]_AC_LANG_ABBREV[]flags_$4_$1])dnl
 AC_CACHE_CHECK([whether _AC_LANG compiler accepts $1], CACHEVAR, [
-  ax_check_save_flags=$[]_AC_LANG_PREFIX[]FLAGS
-  _AC_LANG_PREFIX[]FLAGS="$[]_AC_LANG_PREFIX[]FLAGS $4 $1"
-  AC_COMPILE_IFELSE([m4_default([$5],[AC_LANG_PROGRAM()])],
-    [AS_VAR_SET(CACHEVAR,[yes])],
-    [AS_VAR_SET(CACHEVAR,[no])])
-  _AC_LANG_PREFIX[]FLAGS=$ax_check_save_flags])
+   ax_check_save_flags=$[]_AC_LANG_PREFIX[]FLAGS
+   _AC_LANG_PREFIX[]FLAGS="$[]_AC_LANG_PREFIX[]FLAGS $4 $1"
+   AC_COMPILE_IFELSE([m4_default([$5],[AC_LANG_PROGRAM()])],
+      [AS_VAR_SET(CACHEVAR,[yes])],
+      [AS_VAR_SET(CACHEVAR,[no])])
+   _AC_LANG_PREFIX[]FLAGS=$ax_check_save_flags])
 AS_VAR_IF(CACHEVAR,yes,
-  [m4_default([$2], :)],
-  [m4_default([$3], :)])
+   [m4_default([$2], :)],
+   [m4_default([$3], :)])
 AS_VAR_POPDEF([CACHEVAR])dnl
 ])dnl AX_CHECK_COMPILE_FLAGS
 
@@ -209,8 +212,8 @@ if test "x$enable_unicode" = xyes; then
        HTOP_CHECK_LIB([ncursesw6], [addnwstr], [HAVE_LIBNCURSESW],
         HTOP_CHECK_LIB([ncursesw], [addnwstr], [HAVE_LIBNCURSESW],
          HTOP_CHECK_LIB([ncurses], [addnwstr], [HAVE_LIBNCURSESW],
-       missing_libraries="$missing_libraries libncursesw"
-       AC_MSG_ERROR([You may want to use --disable-unicode or install libncursesw.])
+      missing_libraries="$missing_libraries libncursesw"
+      AC_MSG_ERROR([You may want to use --disable-unicode or install libncursesw.])
    )))))))
 
    AC_CHECK_HEADERS([ncursesw/curses.h],[:],
@@ -239,6 +242,15 @@ else
    AC_SEARCH_LIBS([keypad], [tinfo])
 fi
 
+if test "$my_htop_platform" = "darwin"; then
+   AC_CHECK_HEADERS([mach/mach_time.h])
+   AC_CHECK_FUNCS([mach_timebase_info])
+fi
+
+if test "$my_htop_platform" = "dragonflybsd"; then
+   AC_CHECK_LIB([kvm], [kvm_open], [], [missing_libraries="$missing_libraries libkvm"])
+fi
+
 if test "$my_htop_platform" = "freebsd"; then
    AC_CHECK_LIB([kvm], [kvm_open], [], [missing_libraries="$missing_libraries libkvm"])
 fi
@@ -254,8 +266,7 @@ if test "$my_htop_platform" = "solaris"; then
 fi
 
 AC_ARG_ENABLE(hwloc, [AS_HELP_STRING([--enable-hwloc], [enable hwloc support for CPU affinity, disables Linux affinity])],, enable_hwloc="no")
-if test "x$enable_hwloc" = xyes
-then
+if test "x$enable_hwloc" = xyes; then
    AC_CHECK_LIB([hwloc], [hwloc_get_proc_cpubind], [], [missing_libraries="$missing_libraries libhwloc"])
    AC_CHECK_HEADERS([hwloc.h],[:], [missing_headers="$missing_headers $ac_header"])
 fi
@@ -277,9 +288,9 @@ if test "x$enable_linux_affinity" = xcheck; then
             if (errno == ENOSYS) return 1;
          ]])],
       [enable_linux_affinity=yes
-       AC_MSG_RESULT([yes])],
+         AC_MSG_RESULT([yes])],
       [enable_linux_affinity=no
-       AC_MSG_RESULT([no])],
+         AC_MSG_RESULT([no])],
       [AC_MSG_RESULT([yes (assumed while cross compiling)])])
    fi
 fi
@@ -287,20 +298,17 @@ if test "x$enable_linux_affinity" = xyes; then
    AC_DEFINE(HAVE_LINUX_AFFINITY, 1, [Define if Linux sched_setaffinity and sched_getaffinity are to be used.])
 fi
 
-if test "x$enable_linux_affinity" = xyes -a "x$enable_hwloc" = xyes
-then
+if test "x$enable_linux_affinity" = xyes -a "x$enable_hwloc" = xyes; then
    AC_MSG_ERROR([--enable-hwloc and --enable-linux-affinity are mutual exclusive. Specify at most one of them.])
 fi
 
 AC_ARG_ENABLE(setuid, [AS_HELP_STRING([--enable-setuid], [enable setuid support for platforms that need it])],, enable_setuid="no")
-if test "x$enable_setuid" = xyes
-then
+if test "x$enable_setuid" = xyes; then
    AC_DEFINE(HAVE_SETUID_ENABLED, 1, [Define if setuid support should be enabled.])
 fi
 
 AC_ARG_ENABLE(delayacct, [AS_HELP_STRING([--enable-delayacct], [enable Linux delay accounting])],, enable_delayacct="no")
-if test "x$enable_delayacct" = xyes
-then
+if test "x$enable_delayacct" = xyes; then
    m4_ifdef([PKG_PROG_PKG_CONFIG], [
       PKG_PROG_PKG_CONFIG()
       PKG_CHECK_MODULES(LIBNL3, libnl-3.0, [], [missing_libraries="$missing_libraries libnl-3"])
@@ -329,6 +337,7 @@ AM_CFLAGS="\
  -Wcast-qual\
  -Wextra\
  -Wfloat-equal\
+ -Wformat=2\
  -Wmissing-format-attribute\
  -Wmissing-noreturn\
  -Wmissing-prototypes\
@@ -354,10 +363,10 @@ AC_SUBST([AM_CPPFLAGS])
 # Bail out on errors.
 # ----------------------------------------------------------------------
 if test ! -z "$missing_libraries"; then
-  AC_MSG_ERROR([missing libraries: $missing_libraries])
+   AC_MSG_ERROR([missing libraries: $missing_libraries])
 fi
 if test ! -z "$missing_headers"; then
-  AC_MSG_ERROR([missing headers: $missing_headers])
+   AC_MSG_ERROR([missing headers: $missing_headers])
 fi
 
 AC_DEFINE_UNQUOTED(COPYRIGHT, "(C) 2004-2019 Hisham Muhammad. (C) 2020 htop dev team.", [Copyright message.])
@@ -375,8 +384,7 @@ AC_SUBST(my_htop_platform)
 AC_CONFIG_FILES([Makefile htop.1])
 AC_OUTPUT
 
-if test "$my_htop_platform" = "unsupported"
-then
+if test "$my_htop_platform" = "unsupported"; then
    echo ""
    echo "****************************************************************"
    echo "WARNING! This platform is not currently supported by htop."

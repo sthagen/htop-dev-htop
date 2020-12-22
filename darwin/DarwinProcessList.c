@@ -21,6 +21,7 @@ in the source distribution for its full text.
 
 #include "CRT.h"
 #include "DarwinProcess.h"
+#include "Platform.h"
 #include "ProcessList.h"
 #include "zfs/openzfs_sysctl.h"
 #include "zfs/ZfsArcStats.h"
@@ -71,14 +72,14 @@ static void ProcessList_getHostInfo(host_basic_info_data_t* p) {
    mach_msg_type_number_t info_size = HOST_BASIC_INFO_COUNT;
 
    if (0 != host_info(mach_host_self(), HOST_BASIC_INFO, (host_info_t)p, &info_size)) {
-      CRT_fatalError("Unable to retrieve host info\n");
+      CRT_fatalError("Unable to retrieve host info");
    }
 }
 
 static void ProcessList_freeCPULoadInfo(processor_cpu_load_info_t* p) {
    if (NULL != p && NULL != *p) {
       if (0 != munmap(*p, vm_page_size)) {
-         CRT_fatalError("Unable to free old CPU load information\n");
+         CRT_fatalError("Unable to free old CPU load information");
       }
       *p = NULL;
    }
@@ -90,7 +91,7 @@ static unsigned ProcessList_allocateCPULoadInfo(processor_cpu_load_info_t* p) {
 
    // TODO Improving the accuracy of the load counts woule help a lot.
    if (0 != host_processor_info(mach_host_self(), PROCESSOR_CPU_LOAD_INFO, &cpu_count, (processor_info_array_t*)p, &info_size)) {
-      CRT_fatalError("Unable to retrieve CPU info\n");
+      CRT_fatalError("Unable to retrieve CPU info");
    }
 
    return cpu_count;
@@ -100,7 +101,7 @@ static void ProcessList_getVMStats(vm_statistics_t p) {
    mach_msg_type_number_t info_size = HOST_VM_INFO_COUNT;
 
    if (host_statistics(mach_host_self(), HOST_VM_INFO, (host_info_t)p, &info_size) != 0) {
-      CRT_fatalError("Unable to retrieve VM statistics\n");
+      CRT_fatalError("Unable to retrieve VM statistics");
    }
 }
 
@@ -131,7 +132,7 @@ static struct kinfo_proc* ProcessList_getKInfoProcs(size_t* count) {
 ProcessList* ProcessList_new(UsersTable* usersTable, Hashtable* pidMatchList, uid_t userId) {
    DarwinProcessList* this = xCalloc(1, sizeof(DarwinProcessList));
 
-   ProcessList_init(&this->super, Class(Process), usersTable, pidMatchList, userId);
+   ProcessList_init(&this->super, Class(DarwinProcess), usersTable, pidMatchList, userId);
 
    /* Initialize the CPU information */
    this->super.cpuCount = ProcessList_allocateCPULoadInfo(&this->prev_load);
@@ -156,6 +157,11 @@ ProcessList* ProcessList_new(UsersTable* usersTable, Hashtable* pidMatchList, ui
 void ProcessList_delete(ProcessList* this) {
    ProcessList_done(this);
    free(this);
+}
+
+static double ticksToNanoseconds(const double ticks) {
+   const double nanos_per_sec = 1e9;
+   return ticks / (double) Platform_clockTicksPerSec * Platform_timebaseToNS * nanos_per_sec;
 }
 
 void ProcessList_goThroughEntries(ProcessList* super, bool pauseProcessUpdate) {
@@ -185,6 +191,8 @@ void ProcessList_goThroughEntries(ProcessList* super, bool pauseProcessUpdate) {
       }
    }
 
+   const double time_interval = ticksToNanoseconds(dpl->global_diff) / (double) dpl->super.cpuCount;
+
    /* Clear the thread counts */
    super->kernelThreads = 0;
    super->userlandThreads = 0;
@@ -204,7 +212,7 @@ void ProcessList_goThroughEntries(ProcessList* super, bool pauseProcessUpdate) {
       proc = (DarwinProcess*)ProcessList_getProcess(super, ps[i].kp_proc.p_pid, &preExisting, DarwinProcess_new);
 
       DarwinProcess_setFromKInfoProc(&proc->super, &ps[i], preExisting);
-      DarwinProcess_setFromLibprocPidinfo(proc, dpl);
+      DarwinProcess_setFromLibprocPidinfo(proc, dpl, time_interval);
 
       // Disabled for High Sierra due to bug in macOS High Sierra
       bool isScanThreadSupported  = ! ( CompareKernelVersion(17, 0, 0) >= 0 && CompareKernelVersion(17, 5, 0) < 0);

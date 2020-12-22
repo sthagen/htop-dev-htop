@@ -19,17 +19,9 @@ extern const SignalItem Platform_signals[];
 
 extern const unsigned int Platform_numberOfSignals;
 
-extern ProcessField Platform_defaultFields[];
-
-extern ProcessFieldData Process_fields[];
+extern const ProcessField Platform_defaultFields[];
 
 extern const MeterClass* const Platform_meterTypes[];
-
-extern int Platform_numberOfFields;
-
-extern char Process_pidFormat[20];
-
-extern ProcessPidColumn Process_pidColumns[];
 
 void Platform_init(void);
 

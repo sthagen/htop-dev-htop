@@ -13,17 +13,14 @@ in the source distribution for its full text.
 #include <sys/types.h>
 
 #include "Object.h"
+#include "ProcessField.h"
 #include "RichString.h"
 
-#ifdef __ANDROID__
-#define SYS_ioprio_get __NR_ioprio_get
-#define SYS_ioprio_set __NR_ioprio_set
-#endif
 
 #define PROCESS_FLAG_IO 0x0001
 #define DEFAULT_HIGHLIGHT_SECS 5
 
-typedef enum ProcessFields {
+typedef enum ProcessField_ {
    NULL_PROCESSFIELD = 0,
    PID = 1,
    COMM = 2,
@@ -49,12 +46,12 @@ typedef enum ProcessFields {
    NLWP = 51,
    TGID = 52,
    PERCENT_NORM_CPU = 53,
-} ProcessField;
 
-typedef struct ProcessPidColumn_ {
-   int id;
-   const char* label;
-} ProcessPidColumn;
+   /* Platform specific fields, defined in ${platform}/ProcessField.h */
+   PLATFORM_PROCESS_FIELDS
+
+   LAST_PROCESSFIELD
+} ProcessField;
 
 struct Settings_;
 
@@ -120,6 +117,7 @@ typedef struct ProcessFieldData_ {
    const char* title;
    const char* description;
    uint32_t flags;
+   bool pidColumn;
 } ProcessFieldData;
 
 // Implemented in platform-specific code:
@@ -127,23 +125,26 @@ void Process_writeField(const Process* this, RichString* str, ProcessField field
 long Process_compare(const void* v1, const void* v2);
 void Process_delete(Object* cast);
 bool Process_isThread(const Process* this);
-extern ProcessFieldData Process_fields[];
-extern ProcessPidColumn Process_pidColumns[];
-extern char Process_pidFormat[20];
+extern const ProcessFieldData Process_fields[LAST_PROCESSFIELD];
+#define PROCESS_MAX_PID_DIGITS 19
+extern int Process_pidDigits;
 
 typedef Process*(*Process_New)(const struct Settings_*);
 typedef void (*Process_WriteField)(const Process*, RichString*, ProcessField);
+typedef long (*Process_CompareByKey)(const Process*, const Process*, ProcessField);
 typedef const char* (*Process_GetCommandStr)(const Process*);
 
 typedef struct ProcessClass_ {
    const ObjectClass super;
    const Process_WriteField writeField;
+   const Process_CompareByKey compareByKey;
    const Process_GetCommandStr getCommandStr;
 } ProcessClass;
 
-#define As_Process(this_)              ((const ProcessClass*)((this_)->super.klass))
+#define As_Process(this_)                              ((const ProcessClass*)((this_)->super.klass))
 
-#define Process_getCommand(this_)      (As_Process(this_)->getCommandStr ? As_Process(this_)->getCommandStr((const Process*)(this_)) : ((const Process*)(this_))->comm)
+#define Process_getCommand(this_)                      (As_Process(this_)->getCommandStr ? As_Process(this_)->getCommandStr((const Process*)(this_)) : ((const Process*)(this_))->comm)
+#define Process_compareByKey(p1_, p2_, key_)           (As_Process(p1_)->compareByKey ? (As_Process(p1_)->compareByKey(p1_, p2_, key_)) : Process_compareByKey_Base(p1_, p2_, key_))
 
 static inline pid_t Process_getParentPid(const Process* this) {
    return this->tgid == this->pid ? this->ppid : this->tgid;
@@ -199,5 +200,7 @@ bool Process_changePriorityBy(Process* this, Arg delta);
 bool Process_sendSignal(Process* this, Arg sgn);
 
 long Process_pidCompare(const void* v1, const void* v2);
+
+long Process_compareByKey_Base(const Process* p1, const Process* p2, ProcessField key);
 
 #endif

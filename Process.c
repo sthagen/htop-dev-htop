@@ -38,23 +38,15 @@ in the source distribution for its full text.
 
 static uid_t Process_getuid = (uid_t)-1;
 
-char Process_pidFormat[20] = "%7d ";
-
-static char Process_titleBuffer[20][20];
+int Process_pidDigits = 7;
 
 void Process_setupColumnWidths() {
    int maxPid = Platform_getMaxPid();
    if (maxPid == -1)
       return;
 
-   int digits = ceil(log10(maxPid));
-   assert(digits < 20);
-   for (int i = 0; Process_pidColumns[i].label; i++) {
-      assert(i < 20);
-      xSnprintf(Process_titleBuffer[i], 20, "%*s ", digits, Process_pidColumns[i].label);
-      Process_fields[Process_pidColumns[i].id].title = Process_titleBuffer[i];
-   }
-   xSnprintf(Process_pidFormat, sizeof(Process_pidFormat), "%%%dd ", digits);
+   Process_pidDigits = ceil(log10(maxPid));
+   assert(Process_pidDigits <= PROCESS_MAX_PID_DIGITS);
 }
 
 void Process_humanNumber(RichString* str, unsigned long long number, bool coloring) {
@@ -338,9 +330,9 @@ void Process_writeField(const Process* this, RichString* str, ProcessField field
       break;
    }
    case NLWP: xSnprintf(buffer, n, "%4ld ", this->nlwp); break;
-   case PGRP: xSnprintf(buffer, n, Process_pidFormat, this->pgrp); break;
-   case PID: xSnprintf(buffer, n, Process_pidFormat, this->pid); break;
-   case PPID: xSnprintf(buffer, n, Process_pidFormat, this->ppid); break;
+   case PGRP: xSnprintf(buffer, n, "%*d ", Process_pidDigits, this->pgrp); break;
+   case PID: xSnprintf(buffer, n, "%*d ", Process_pidDigits, this->pid); break;
+   case PPID: xSnprintf(buffer, n, "%*d ", Process_pidDigits, this->ppid); break;
    case PRIORITY: {
       if(this->priority <= -100)
          xSnprintf(buffer, n, " RT ");
@@ -349,7 +341,7 @@ void Process_writeField(const Process* this, RichString* str, ProcessField field
       break;
    }
    case PROCESSOR: xSnprintf(buffer, n, "%3d ", Settings_cpuId(this->settings, this->processor)); break;
-   case SESSION: xSnprintf(buffer, n, Process_pidFormat, this->session); break;
+   case SESSION: xSnprintf(buffer, n, "%*d ", Process_pidDigits, this->session); break;
    case STARTTIME: xSnprintf(buffer, n, "%s", this->starttime_show); break;
    case STATE: {
       xSnprintf(buffer, n, "%c ", this->state);
@@ -365,8 +357,8 @@ void Process_writeField(const Process* this, RichString* str, ProcessField field
    }
    case ST_UID: xSnprintf(buffer, n, "%5d ", this->st_uid); break;
    case TIME: Process_printTime(str, this->time); return;
-   case TGID: xSnprintf(buffer, n, Process_pidFormat, this->tgid); break;
-   case TPGID: xSnprintf(buffer, n, Process_pidFormat, this->tpgid); break;
+   case TGID: xSnprintf(buffer, n, "%*d ", Process_pidDigits, this->tgid); break;
+   case TPGID: xSnprintf(buffer, n, "%*d ", Process_pidDigits, this->tpgid); break;
    case TTY_NR: xSnprintf(buffer, n, "%3u:%3u ", major(this->tty_nr), minor(this->tty_nr)); break;
    case USER: {
       if (Process_getuid != this->st_uid)
@@ -454,7 +446,7 @@ void Process_toggleTag(Process* this) {
 bool Process_isNew(const Process* this) {
    assert(this->processList);
    if (this->processList->scanTs >= this->seenTs) {
-      return this->processList->scanTs - this->seenTs <= this->processList->settings->highlightDelaySecs;
+      return this->processList->scanTs - this->seenTs <= 1000 * this->processList->settings->highlightDelaySecs;
    }
    return false;
 }
@@ -495,9 +487,8 @@ long Process_pidCompare(const void* v1, const void* v2) {
 long Process_compare(const void* v1, const void* v2) {
    const Process *p1, *p2;
    const Settings *settings = ((const Process*)v1)->settings;
-   int r;
 
-   if (settings->direction == 1) {
+   if (Settings_getActiveDirection(settings) == 1) {
       p1 = (const Process*)v1;
       p2 = (const Process*)v2;
    } else {
@@ -505,7 +496,21 @@ long Process_compare(const void* v1, const void* v2) {
       p1 = (const Process*)v2;
    }
 
-   switch (settings->sortKey) {
+   ProcessField key = Settings_getActiveSortKey(settings);
+
+   long result = Process_compareByKey(p1, p2, key);
+
+   // Implement tie-breaker (needed to make tree mode more stable)
+   if (!result)
+      result = SPACESHIP_NUMBER(p1->pid, p2->pid);
+
+   return result;
+}
+
+long Process_compareByKey_Base(const Process* p1, const Process* p2, ProcessField key) {
+   int r;
+
+   switch (key) {
    case PERCENT_CPU:
    case PERCENT_NORM_CPU:
       return SPACESHIP_NUMBER(p2->percent_cpu, p1->percent_cpu);

@@ -16,7 +16,7 @@ in the source distribution for its full text.
 #include "XUtils.h"
 
 
-ProcessFieldData Process_fields[] = {
+const ProcessFieldData Process_fields[LAST_PROCESSFIELD] = {
    [0] = {
       .name = "",
       .title = NULL,
@@ -25,9 +25,10 @@ ProcessFieldData Process_fields[] = {
    },
    [PID] = {
       .name = "PID",
-      .title = "    PID ",
+      .title = "PID",
       .description = "Process/thread ID",
       .flags = 0,
+      .pidColumn = true,
    },
    [COMM] = {
       .name = "Command",
@@ -43,21 +44,24 @@ ProcessFieldData Process_fields[] = {
    },
    [PPID] = {
       .name = "PPID",
-      .title = "   PPID ",
+      .title = "PPID",
       .description = "Parent process ID",
       .flags = 0,
+      .pidColumn = true,
    },
    [PGRP] = {
       .name = "PGRP",
-      .title = "   PGRP ",
+      .title = "PGRP",
       .description = "Process group ID",
       .flags = 0,
+      .pidColumn = true,
    },
    [SESSION] = {
       .name = "SESSION",
-      .title = "   SESN ",
+      .title = "SESN",
       .description = "Process's session ID",
       .flags = 0,
+      .pidColumn = true,
    },
    [TTY_NR] = {
       .name = "TTY_NR",
@@ -67,9 +71,10 @@ ProcessFieldData Process_fields[] = {
    },
    [TPGID] = {
       .name = "TPGID",
-      .title = "  TPGID ",
+      .title = "TPGID",
       .description = "Process ID of the fg process group of the controlling terminal",
       .flags = 0,
+      .pidColumn = true,
    },
    [MINFLT] = {
       .name = "MINFLT",
@@ -163,26 +168,11 @@ ProcessFieldData Process_fields[] = {
    },
    [TGID] = {
       .name = "TGID",
-      .title = "   TGID ",
+      .title = "TGID",
       .description = "Thread group ID (i.e. process ID)",
       .flags = 0,
+      .pidColumn = true,
    },
-   [LAST_PROCESSFIELD] = {
-      .name = "*** report bug! ***",
-      .title = NULL,
-      .description = NULL,
-      .flags = 0,
-   },
-};
-
-ProcessPidColumn Process_pidColumns[] = {
-   { .id = PID, .label = "PID" },
-   { .id = PPID, .label = "PPID" },
-   { .id = TPGID, .label = "TPGID" },
-   { .id = TGID, .label = "TGID" },
-   { .id = PGRP, .label = "PGRP" },
-   { .id = SESSION, .label = "SESN" },
-   { .id = 0, .label = NULL },
 };
 
 Process* OpenBSDProcess_new(const Settings* settings) {
@@ -212,25 +202,17 @@ static void OpenBSDProcess_writeField(const Process* this, RichString* str, Proc
    RichString_appendWide(str, attr, buffer);
 }
 
-static long OpenBSDProcess_compare(const void* v1, const void* v2) {
-   const OpenBSDProcess *p1, *p2;
-   const Settings *settings = ((const Process*)v1)->settings;
-
-   if (settings->direction == 1) {
-      p1 = (const OpenBSDProcess*)v1;
-      p2 = (const OpenBSDProcess*)v2;
-   } else {
-      p2 = (const OpenBSDProcess*)v1;
-      p1 = (const OpenBSDProcess*)v2;
-   }
+static long OpenBSDProcess_compareByKey(const Process* v1, const Process* v2, ProcessField key) {
+   const OpenBSDProcess* p1 = (const OpenBSDProcess*)v1;
+   const OpenBSDProcess* p2 = (const OpenBSDProcess*)v2;
 
    // remove if actually used
    (void)p1; (void)p2;
 
-   switch (settings->sortKey) {
+   switch (key) {
    // add OpenBSD-specific fields here
    default:
-      return Process_compare(v1, v2);
+      return Process_compareByKey_Base(v1, v2, key);
    }
 }
 
@@ -239,9 +221,10 @@ const ProcessClass OpenBSDProcess_class = {
       .extends = Class(Process),
       .display = Process_display,
       .delete = Process_delete,
-      .compare = OpenBSDProcess_compare
+      .compare = Process_compare
    },
    .writeField = OpenBSDProcess_writeField,
+   .compareByKey = OpenBSDProcess_compareByKey
 };
 
 bool Process_isThread(const Process* this) {

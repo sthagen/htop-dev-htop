@@ -19,11 +19,12 @@ in the source distribution for its full text.
 #include "ProcessLocksScreen.h"
 #include "SignalsPanel.h"
 
-extern ProcessFieldData Process_fields[];
 
-extern ProcessField Platform_defaultFields[];
+extern const ProcessField Platform_defaultFields[];
 
-extern int Platform_numberOfFields;
+extern double Platform_timebaseToNS;
+
+extern long Platform_clockTicksPerSec;
 
 extern const SignalItem Platform_signals[];
 
@@ -42,8 +43,6 @@ int Platform_getUptime(void);
 void Platform_getLoadAverage(double* one, double* five, double* fifteen);
 
 int Platform_getMaxPid(void);
-
-extern ProcessPidColumn Process_pidColumns[];
 
 double Platform_setCPUValues(Meter* mtr, int cpu);
 

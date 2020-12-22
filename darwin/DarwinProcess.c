@@ -14,17 +14,37 @@ in the source distribution for its full text.
 #include <mach/mach.h>
 
 #include "CRT.h"
+#include "Platform.h"
 #include "Process.h"
 
 
-const ProcessClass DarwinProcess_class = {
-   .super = {
-      .extends = Class(Process),
-      .display = Process_display,
-      .delete = Process_delete,
-      .compare = Process_compare
-   },
-   .writeField = Process_writeField,
+const ProcessFieldData Process_fields[LAST_PROCESSFIELD] = {
+   [0] = { .name = "", .title = NULL, .description = NULL, .flags = 0, },
+   [PID] = { .name = "PID", .title = "PID", .description = "Process/thread ID", .flags = 0, .pidColumn = true, },
+   [COMM] = { .name = "Command", .title = "Command ", .description = "Command line", .flags = 0, },
+   [STATE] = { .name = "STATE", .title = "S ", .description = "Process state (S sleeping, R running, D disk, Z zombie, T traced, W paging)", .flags = 0, },
+   [PPID] = { .name = "PPID", .title = "PPID", .description = "Parent process ID", .flags = 0, .pidColumn = true, },
+   [PGRP] = { .name = "PGRP", .title = "PGRP", .description = "Process group ID", .flags = 0, .pidColumn = true, },
+   [SESSION] = { .name = "SESSION", .title = "SID", .description = "Process's session ID", .flags = 0, .pidColumn = true, },
+   [TTY_NR] = { .name = "TTY_NR", .title = "    TTY ", .description = "Controlling terminal", .flags = 0, },
+   [TPGID] = { .name = "TPGID", .title = "TPGID", .description = "Process ID of the fg process group of the controlling terminal", .flags = 0, .pidColumn = true, },
+   [MINFLT] = { .name = "MINFLT", .title = "     MINFLT ", .description = "Number of minor faults which have not required loading a memory page from disk", .flags = 0, },
+   [MAJFLT] = { .name = "MAJFLT", .title = "     MAJFLT ", .description = "Number of major faults which have required loading a memory page from disk", .flags = 0, },
+   [PRIORITY] = { .name = "PRIORITY", .title = "PRI ", .description = "Kernel's internal priority for the process", .flags = 0, },
+   [NICE] = { .name = "NICE", .title = " NI ", .description = "Nice value (the higher the value, the more it lets other processes take priority)", .flags = 0, },
+   [STARTTIME] = { .name = "STARTTIME", .title = "START ", .description = "Time the process was started", .flags = 0, },
+
+   [PROCESSOR] = { .name = "PROCESSOR", .title = "CPU ", .description = "Id of the CPU the process last executed on", .flags = 0, },
+   [M_VIRT] = { .name = "M_VIRT", .title = " VIRT ", .description = "Total program size in virtual memory", .flags = 0, },
+   [M_RESIDENT] = { .name = "M_RESIDENT", .title = "  RES ", .description = "Resident set size, size of the text and data sections, plus stack usage", .flags = 0, },
+   [ST_UID] = { .name = "ST_UID", .title = "  UID ", .description = "User ID of the process owner", .flags = 0, },
+   [PERCENT_CPU] = { .name = "PERCENT_CPU", .title = "CPU% ", .description = "Percentage of the CPU time the process used in the last sampling", .flags = 0, },
+   [PERCENT_MEM] = { .name = "PERCENT_MEM", .title = "MEM% ", .description = "Percentage of the memory the process is using, based on resident memory size", .flags = 0, },
+   [USER] = { .name = "USER", .title = "USER      ", .description = "Username of the process owner (or user ID if name cannot be determined)", .flags = 0, },
+   [TIME] = { .name = "TIME", .title = "  TIME+  ", .description = "Total time the process has spent in user and system time", .flags = 0, },
+   [NLWP] = { .name = "NLWP", .title = "NLWP ", .description = "Number of threads in the process", .flags = 0, },
+   [TGID] = { .name = "TGID", .title = "TGID", .description = "Thread group ID (i.e. process ID)", .flags = 0, .pidColumn = true, },
+   [TRANSLATED] = { .name = "TRANSLATED", .title = "T ", .description = "Translation info (T translated, N native)", .flags = 0, },
 };
 
 Process* DarwinProcess_new(const Settings* settings) {
@@ -35,6 +55,7 @@ Process* DarwinProcess_new(const Settings* settings) {
    this->utime = 0;
    this->stime = 0;
    this->taskAccess = true;
+   this->translated = false;
 
    return &this->super;
 }
@@ -44,6 +65,34 @@ void Process_delete(Object* cast) {
    Process_done(&this->super);
    // free platform-specific fields here
    free(this);
+}
+
+static void DarwinProcess_writeField(const Process* this, RichString* str, ProcessField field) {
+   const DarwinProcess* dp = (const DarwinProcess*) this;
+   char buffer[256]; buffer[255] = '\0';
+   int attr = CRT_colors[DEFAULT_COLOR];
+   int n = sizeof(buffer) - 1;
+   switch (field) {
+   // add Platform-specific fields here
+   case TRANSLATED: xSnprintf(buffer, n, "%c ", dp->translated ? 'T' : 'N'); break;
+   default:
+      Process_writeField(this, str, field);
+      return;
+   }
+   RichString_appendWide(str, attr, buffer);
+}
+
+static long DarwinProcess_compareByKey(const Process* v1, const Process* v2, ProcessField key) {
+   const DarwinProcess* p1 = (const DarwinProcess*)v1;
+   const DarwinProcess* p2 = (const DarwinProcess*)v2;
+
+   switch (key) {
+   // add Platform-specific fields here
+   case TRANSLATED:
+      return SPACESHIP_NUMBER(p1->translated, p2->translated);
+   default:
+      return Process_compareByKey_Base(v1, v2, key);
+   }
 }
 
 bool Process_isThread(const Process* this) {
@@ -195,6 +244,8 @@ ERROR_A:
 }
 
 void DarwinProcess_setFromKInfoProc(Process* proc, const struct kinfo_proc* ps, bool exists) {
+   DarwinProcess* dp = (DarwinProcess*)proc;
+
    const struct extern_proc* ep = &ps->kp_proc;
 
    /* UNSET HERE :
@@ -223,6 +274,7 @@ void DarwinProcess_setFromKInfoProc(Process* proc, const struct kinfo_proc* ps, 
       /* e_tdev = (major << 24) | (minor & 0xffffff) */
       /* e_tdev == -1 for "no device" */
       proc->tty_nr = ps->kp_eproc.e_tdev & 0xff; /* TODO tty_nr is unsigned */
+      dp->translated = ps->kp_proc.p_flag & P_TRANSLATED;
 
       proc->starttime_ctime = ep->p_starttime.tv_sec;
       Process_fillStarttimeBuffer(proc);
@@ -240,23 +292,21 @@ void DarwinProcess_setFromKInfoProc(Process* proc, const struct kinfo_proc* ps, 
    proc->updated = true;
 }
 
-void DarwinProcess_setFromLibprocPidinfo(DarwinProcess* proc, DarwinProcessList* dpl) {
+void DarwinProcess_setFromLibprocPidinfo(DarwinProcess* proc, DarwinProcessList* dpl, double time_interval) {
    struct proc_taskinfo pti;
 
    if (sizeof(pti) == proc_pidinfo(proc->super.pid, PROC_PIDTASKINFO, 0, &pti, sizeof(pti))) {
-      if (0 != proc->utime || 0 != proc->stime) {
-         uint64_t diff = (pti.pti_total_system - proc->stime)
-                       + (pti.pti_total_user - proc->utime);
+      uint64_t total_existing_time = proc->stime + proc->utime;
+      uint64_t total_current_time = pti.pti_total_system + pti.pti_total_user;
 
-         proc->super.percent_cpu = (double)diff * (double)dpl->super.cpuCount
-                                 / ((double)dpl->global_diff * 100000.0);
-
-//       fprintf(stderr, "%f %llu %llu %llu %llu %llu\n", proc->super.percent_cpu,
-//               proc->stime, proc->utime, pti.pti_total_system, pti.pti_total_user, dpl->global_diff);
-//       exit(7);
+      if (total_existing_time && 1E-6 < time_interval) {
+         uint64_t total_time_diff = total_current_time - total_existing_time;
+         proc->super.percent_cpu = ((double)total_time_diff / time_interval) * 100.0;
+      } else {
+         proc->super.percent_cpu = 0.0;
       }
 
-      proc->super.time = (pti.pti_total_system + pti.pti_total_user) / 10000000;
+      proc->super.time = total_current_time / 10000000;
       proc->super.nlwp = pti.pti_threadnum;
       proc->super.m_virt = pti.pti_virtual_size / ONE_K;
       proc->super.m_resident = pti.pti_resident_size / ONE_K;
@@ -341,3 +391,15 @@ void DarwinProcess_scanThreads(DarwinProcess* dp) {
    }
    proc->state = state;
 }
+
+
+const ProcessClass DarwinProcess_class = {
+   .super = {
+      .extends = Class(Process),
+      .display = Process_display,
+      .delete = Process_delete,
+      .compare = Process_compare
+   },
+   .writeField = DarwinProcess_writeField,
+   .compareByKey = DarwinProcess_compareByKey,
+};

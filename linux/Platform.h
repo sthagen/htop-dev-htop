@@ -18,9 +18,7 @@ in the source distribution for its full text.
 #include "ProcessLocksScreen.h"
 #include "SignalsPanel.h"
 
-extern ProcessField Platform_defaultFields[];
-
-extern int Platform_numberOfFields;
+extern const ProcessField Platform_defaultFields[];
 
 extern const SignalItem Platform_signals[];
 

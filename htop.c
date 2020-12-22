@@ -125,14 +125,14 @@ static CommandLineSettings parseArguments(int argc, char** argv) {
          case 's':
             assert(optarg); /* please clang analyzer, cause optarg can be NULL in the 'u' case */
             if (String_eq(optarg, "help")) {
-               for (int j = 1; j < Platform_numberOfFields; j++) {
+               for (int j = 1; j < LAST_PROCESSFIELD; j++) {
                   const char* name = Process_fields[j].name;
                   if (name) printf ("%s\n", name);
                }
                exit(0);
             }
             flags.sortKey = 0;
-            for (int j = 1; j < Platform_numberOfFields; j++) {
+            for (int j = 1; j < LAST_PROCESSFIELD; j++) {
                if (Process_fields[j].name == NULL)
                   continue;
                if (String_eq(optarg, Process_fields[j].name)) {
@@ -298,9 +298,12 @@ int main(int argc, char** argv) {
    if (flags.highlightDelaySecs != -1)
       settings->highlightDelaySecs = flags.highlightDelaySecs;
    if (flags.sortKey > 0) {
-      settings->sortKey = flags.sortKey;
-      settings->treeView = false;
-      settings->direction = 1;
+      // -t -s <key> means "tree sorted by key"
+      // -s <key> means "list sorted by key" (previous existing behavior)
+      if (!flags.treeView) {
+         settings->treeView = false;
+      }
+      Settings_setSortKey(settings, flags.sortKey);
    }
 
    CRT_init(&(settings->delay), settings->colorScheme, flags.allowUnicode);

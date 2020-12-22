@@ -6,32 +6,42 @@ Released under the GNU GPLv2, see the COPYING file
 in the source distribution for its full text.
 */
 
-#include "Platform.h"
-#include "Macros.h"
-#include "CPUMeter.h"
-#include "MemoryMeter.h"
-#include "SwapMeter.h"
-#include "TasksMeter.h"
-#include "LoadAverageMeter.h"
-#include "ClockMeter.h"
-#include "DateMeter.h"
-#include "DateTimeMeter.h"
-#include "HostnameMeter.h"
-#include "ProcessLocksScreen.h"
-#include "UptimeMeter.h"
-#include "zfs/ZfsArcMeter.h"
-#include "zfs/ZfsCompressedArcMeter.h"
-#include "DarwinProcessList.h"
+#include "config.h" // IWYU pragma: keep
 
+#include "Platform.h"
+
+#include <errno.h>
 #include <math.h>
 #include <stdlib.h>
-
-#include <CoreFoundation/CoreFoundation.h>
+#include <unistd.h>
 #include <CoreFoundation/CFString.h>
+#include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/ps/IOPowerSources.h>
 #include <IOKit/ps/IOPSKeys.h>
 
-ProcessField Platform_defaultFields[] = { PID, USER, PRIORITY, NICE, M_VIRT, M_RESIDENT, STATE, PERCENT_CPU, PERCENT_MEM, TIME, COMM, 0 };
+#include "ClockMeter.h"
+#include "CPUMeter.h"
+#include "CRT.h"
+#include "DarwinProcessList.h"
+#include "DateMeter.h"
+#include "DateTimeMeter.h"
+#include "HostnameMeter.h"
+#include "LoadAverageMeter.h"
+#include "Macros.h"
+#include "MemoryMeter.h"
+#include "ProcessLocksScreen.h"
+#include "SwapMeter.h"
+#include "TasksMeter.h"
+#include "UptimeMeter.h"
+#include "zfs/ZfsArcMeter.h"
+#include "zfs/ZfsCompressedArcMeter.h"
+
+#ifdef HAVE_MACH_MACH_TIME_H
+#include <mach/mach_time.h>
+#endif
+
+
+const ProcessField Platform_defaultFields[] = { PID, USER, PRIORITY, NICE, M_VIRT, M_RESIDENT, STATE, PERCENT_CPU, PERCENT_MEM, TIME, COMM, 0 };
 
 const SignalItem Platform_signals[] = {
    { .name = " 0 Cancel",    .number =  0 },
@@ -71,35 +81,6 @@ const SignalItem Platform_signals[] = {
 
 const unsigned int Platform_numberOfSignals = ARRAYSIZE(Platform_signals);
 
-ProcessFieldData Process_fields[] = {
-   [0] = { .name = "", .title = NULL, .description = NULL, .flags = 0, },
-   [PID] = { .name = "PID", .title = "    PID ", .description = "Process/thread ID", .flags = 0, },
-   [COMM] = { .name = "Command", .title = "Command ", .description = "Command line", .flags = 0, },
-   [STATE] = { .name = "STATE", .title = "S ", .description = "Process state (S sleeping, R running, D disk, Z zombie, T traced, W paging)", .flags = 0, },
-   [PPID] = { .name = "PPID", .title = "   PPID ", .description = "Parent process ID", .flags = 0, },
-   [PGRP] = { .name = "PGRP", .title = "   PGRP ", .description = "Process group ID", .flags = 0, },
-   [SESSION] = { .name = "SESSION", .title = "    SID ", .description = "Process's session ID", .flags = 0, },
-   [TTY_NR] = { .name = "TTY_NR", .title = "    TTY ", .description = "Controlling terminal", .flags = 0, },
-   [TPGID] = { .name = "TPGID", .title = "  TPGID ", .description = "Process ID of the fg process group of the controlling terminal", .flags = 0, },
-   [MINFLT] = { .name = "MINFLT", .title = "     MINFLT ", .description = "Number of minor faults which have not required loading a memory page from disk", .flags = 0, },
-   [MAJFLT] = { .name = "MAJFLT", .title = "     MAJFLT ", .description = "Number of major faults which have required loading a memory page from disk", .flags = 0, },
-   [PRIORITY] = { .name = "PRIORITY", .title = "PRI ", .description = "Kernel's internal priority for the process", .flags = 0, },
-   [NICE] = { .name = "NICE", .title = " NI ", .description = "Nice value (the higher the value, the more it lets other processes take priority)", .flags = 0, },
-   [STARTTIME] = { .name = "STARTTIME", .title = "START ", .description = "Time the process was started", .flags = 0, },
-
-   [PROCESSOR] = { .name = "PROCESSOR", .title = "CPU ", .description = "Id of the CPU the process last executed on", .flags = 0, },
-   [M_VIRT] = { .name = "M_VIRT", .title = " VIRT ", .description = "Total program size in virtual memory", .flags = 0, },
-   [M_RESIDENT] = { .name = "M_RESIDENT", .title = "  RES ", .description = "Resident set size, size of the text and data sections, plus stack usage", .flags = 0, },
-   [ST_UID] = { .name = "ST_UID", .title = "  UID ", .description = "User ID of the process owner", .flags = 0, },
-   [PERCENT_CPU] = { .name = "PERCENT_CPU", .title = "CPU% ", .description = "Percentage of the CPU time the process used in the last sampling", .flags = 0, },
-   [PERCENT_MEM] = { .name = "PERCENT_MEM", .title = "MEM% ", .description = "Percentage of the memory the process is using, based on resident memory size", .flags = 0, },
-   [USER] = { .name = "USER", .title = "USER      ", .description = "Username of the process owner (or user ID if name cannot be determined)", .flags = 0, },
-   [TIME] = { .name = "TIME", .title = "  TIME+  ", .description = "Total time the process has spent in user and system time", .flags = 0, },
-   [NLWP] = { .name = "NLWP", .title = "NLWP ", .description = "Number of threads in the process", .flags = 0, },
-   [TGID] = { .name = "TGID", .title = "   TGID ", .description = "Thread group ID (i.e. process ID)", .flags = 0, },
-   [100] = { .name = "*** report bug! ***", .title = NULL, .description = NULL, .flags = 0, },
-};
-
 const MeterClass* const Platform_meterTypes[] = {
    &CPUMeter_class,
    &ClockMeter_class,
@@ -131,10 +112,28 @@ const MeterClass* const Platform_meterTypes[] = {
    NULL
 };
 
-int Platform_numberOfFields = 100;
+double Platform_timebaseToNS = 1.0;
+
+long Platform_clockTicksPerSec = -1;
 
 void Platform_init(void) {
-   /* no platform-specific setup needed */
+   // Check if we can determine the timebase used on this system.
+   // If the API is unavailable assume we get our timebase in nanoseconds.
+#ifdef HAVE_MACH_TIMEBASE_INFO
+   mach_timebase_info_data_t info;
+   mach_timebase_info(&info);
+   Platform_timebaseToNS = (double)info.numer / (double)info.denom;
+#else
+   Platform_timebaseToNS = 1.0;
+#endif
+
+   // Determine the number of clock ticks per second
+   errno = 0;
+   Platform_clockTicksPerSec = sysconf(_SC_CLK_TCK);
+
+   if (errno || Platform_clockTicksPerSec < 1) {
+      CRT_fatalError("Unable to retrieve clock tick rate");
+   }
 }
 
 void Platform_done(void) {
@@ -178,16 +177,6 @@ int Platform_getMaxPid() {
    /* http://opensource.apple.com/source/xnu/xnu-2782.1.97/bsd/sys/proc_internal.hh */
    return 99999;
 }
-
-ProcessPidColumn Process_pidColumns[] = {
-   { .id = PID, .label = "PID" },
-   { .id = PPID, .label = "PPID" },
-   { .id = TPGID, .label = "TPGID" },
-   { .id = TGID, .label = "TGID" },
-   { .id = PGRP, .label = "PGRP" },
-   { .id = SESSION, .label = "SID" },
-   { .id = 0, .label = NULL },
-};
 
 static double Platform_setCPUAverageValues(Meter* mtr) {
    const ProcessList* dpl = mtr->pl;

@@ -19,9 +19,12 @@ typedef struct DarwinProcess_ {
    uint64_t utime;
    uint64_t stime;
    bool taskAccess;
+   bool translated;
 } DarwinProcess;
 
 extern const ProcessClass DarwinProcess_class;
+
+extern const ProcessFieldData Process_fields[LAST_PROCESSFIELD];
 
 Process* DarwinProcess_new(const Settings* settings);
 
@@ -31,7 +34,7 @@ bool Process_isThread(const Process* this);
 
 void DarwinProcess_setFromKInfoProc(Process* proc, const struct kinfo_proc* ps, bool exists);
 
-void DarwinProcess_setFromLibprocPidinfo(DarwinProcess* proc, DarwinProcessList* dpl);
+void DarwinProcess_setFromLibprocPidinfo(DarwinProcess* proc, DarwinProcessList* dpl, double time_interval);
 
 /*
  * Scan threads for process state information.
