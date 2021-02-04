@@ -10,6 +10,19 @@
 #include "XUtils.h"
 
 
+#ifdef BUILD_STATIC
+
+#define sym_sensors_init sensors_init
+#define sym_sensors_cleanup sensors_cleanup
+#define sym_sensors_get_detected_chips sensors_get_detected_chips
+#define sym_sensors_snprintf_chip_name sensors_snprintf_chip_name
+#define sym_sensors_get_features sensors_get_features
+#define sym_sensors_get_subfeature sensors_get_subfeature
+#define sym_sensors_get_value sensors_get_value
+#define sym_sensors_get_label sensors_get_label
+
+#else
+
 static int (*sym_sensors_init)(FILE*);
 static void (*sym_sensors_cleanup)(void);
 static const sensors_chip_name* (*sym_sensors_get_detected_chips)(const sensors_chip_name*, int*);
@@ -21,15 +34,25 @@ static char* (*sym_sensors_get_label)(const sensors_chip_name*, const sensors_fe
 
 static void* dlopenHandle = NULL;
 
+#endif /* BUILD_STATIC */
+
 int LibSensors_init(FILE* input) {
+#ifdef BUILD_STATIC
+
+   return sym_sensors_init(input);
+
+#else
+
    if (!dlopenHandle) {
+      /* Find the unversioned libsensors.so (symlink) and prefer that, but Debian has .so.5 and Fedora .so.4 without
+         matching symlinks (unless people install the -dev packages) */
       dlopenHandle = dlopen("libsensors.so", RTLD_LAZY);
-      if (!dlopenHandle) {
-         /* Debian contains no unversioned .so in libsensors5, only in the -dev package, so work around that: */
+      if (!dlopenHandle)
          dlopenHandle = dlopen("libsensors.so.5", RTLD_LAZY);
-         if (!dlopenHandle)
-            goto dlfailure;
-      }
+      if (!dlopenHandle)
+         dlopenHandle = dlopen("libsensors.so.4", RTLD_LAZY);
+      if (!dlopenHandle)
+         goto dlfailure;
 
       /* Clear any errors */
       dlerror();
@@ -54,29 +77,42 @@ int LibSensors_init(FILE* input) {
 
    return sym_sensors_init(input);
 
+
 dlfailure:
    if (dlopenHandle) {
       dlclose(dlopenHandle);
       dlopenHandle = NULL;
    }
    return -1;
+
+#endif /* BUILD_STATIC */
 }
 
 void LibSensors_cleanup(void) {
+#ifdef BUILD_STATIC
+
+   sym_sensors_cleanup();
+
+#else
+
    if (dlopenHandle) {
       sym_sensors_cleanup();
 
       dlclose(dlopenHandle);
       dlopenHandle = NULL;
    }
+
+#endif /* BUILD_STATIC */
 }
 
 void LibSensors_getCPUTemperatures(CPUData* cpus, unsigned int cpuCount) {
    for (unsigned int i = 0; i <= cpuCount; i++)
       cpus[i].temperature = NAN;
 
+#ifndef BUILD_STATIC
    if (!dlopenHandle)
       return;
+#endif /* !BUILD_STATIC */
 
    unsigned int coreTempCount = 0;
 
@@ -84,7 +120,10 @@ void LibSensors_getCPUTemperatures(CPUData* cpus, unsigned int cpuCount) {
    for (const sensors_chip_name *chip = sym_sensors_get_detected_chips(NULL, &n); chip; chip = sym_sensors_get_detected_chips(NULL, &n)) {
       char buffer[32];
       sym_sensors_snprintf_chip_name(buffer, sizeof(buffer), chip);
-      if (!String_startsWith(buffer, "coretemp") && !String_startsWith(buffer, "cpu_thermal"))
+      if (!String_startsWith(buffer, "coretemp") &&
+          !String_startsWith(buffer, "cpu_thermal") &&
+          !String_startsWith(buffer, "k10temp") &&
+          !String_startsWith(buffer, "zenpower"))
          continue;
 
       int m = 0;
@@ -101,6 +140,8 @@ void LibSensors_getCPUTemperatures(CPUData* cpus, unsigned int cpuCount) {
             tempId = 0;
          } else if (String_startsWith(label, "temp")) {
             /* Raspberry Pi has only temp1 */
+            tempId = 0;
+         } else if (String_startsWith(label, "Tdie")) {
             tempId = 0;
          } else if (String_startsWith(label, "Core ")) {
             tempId = 1 + atoi(label + strlen("Core "));

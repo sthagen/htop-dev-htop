@@ -37,6 +37,7 @@ in the source distribution for its full text.
 #include "Settings.h"
 #include "SignalsPanel.h"
 #include "SwapMeter.h"
+#include "SysArchMeter.h"
 #include "TasksMeter.h"
 #include "UptimeMeter.h"
 #include "XUtils.h"
@@ -99,6 +100,7 @@ const MeterClass* const Platform_meterTypes[] = {
    &UptimeMeter_class,
    &BatteryMeter_class,
    &HostnameMeter_class,
+   &SysArchMeter_class,
    &AllCPUsMeter_class,
    &AllCPUs2Meter_class,
    &AllCPUs4Meter_class,
@@ -213,6 +215,7 @@ void Platform_setSwapValues(Meter* this) {
    const ProcessList* pl = this->pl;
    this->total = pl->totalSwap;
    this->values[0] = pl->usedSwap;
+   this->values[1] = NAN;
 }
 
 char* Platform_getProcessEnv(pid_t pid) {
@@ -301,7 +304,7 @@ static bool findDevice(const char* name, int* mib, struct sensordev* snsrdev, si
          if (errno == ENOENT)
             return false;
       }
-      if (strcmp(name, snsrdev->xname) == 0) {
+      if (String_eq(name, snsrdev->xname)) {
          return true;
       }
    }

@@ -18,6 +18,8 @@ in the source distribution for its full text.
 #include "ZramStats.h"
 #include "zfs/ZfsArcStats.h"
 
+#define HTOP_HUGEPAGE_BASE_SHIFT 16
+#define HTOP_HUGEPAGE_COUNT 24
 
 typedef struct CPUData_ {
    unsigned long long int totalTime;
@@ -71,6 +73,9 @@ typedef struct LinuxProcessList_ {
    struct nl_sock* netlink_socket;
    int netlink_family;
    #endif
+
+   unsigned long long int totalHugePageMem;
+   unsigned long long int usedHugePageMem[HTOP_HUGEPAGE_COUNT];
 
    ZfsArcStats zfs;
    ZramStats zram;

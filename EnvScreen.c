@@ -17,7 +17,7 @@
 EnvScreen* EnvScreen_new(Process* process) {
    EnvScreen* this = xMalloc(sizeof(EnvScreen));
    Object_setClass(this, Class(EnvScreen));
-   return (EnvScreen*) InfoScreen_init(&this->super, process, NULL, LINES - 3, " ");
+   return (EnvScreen*) InfoScreen_init(&this->super, process, NULL, LINES - 2, " ");
 }
 
 void EnvScreen_delete(Object* this) {
@@ -38,7 +38,7 @@ static void EnvScreen_scan(InfoScreen* this) {
    char* env = Platform_getProcessEnv(this->process->pid);
    CRT_restorePrivileges();
    if (env) {
-      for (char* p = env; *p; p = strrchr(p, 0) + 1)
+      for (const char* p = env; *p; p = strrchr(p, 0) + 1)
          InfoScreen_addLine(this, p);
       free(env);
    }

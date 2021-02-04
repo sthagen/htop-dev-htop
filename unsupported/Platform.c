@@ -6,19 +6,23 @@ Released under the GNU GPLv2, see the COPYING file
 in the source distribution for its full text.
 */
 
-#include <math.h>
+#include "config.h" // IWYU pragma: keep
 
 #include "Platform.h"
-#include "Macros.h"
+
+#include <math.h>
+
 #include "CPUMeter.h"
-#include "MemoryMeter.h"
-#include "SwapMeter.h"
-#include "TasksMeter.h"
-#include "LoadAverageMeter.h"
 #include "ClockMeter.h"
 #include "DateMeter.h"
 #include "DateTimeMeter.h"
 #include "HostnameMeter.h"
+#include "LoadAverageMeter.h"
+#include "Macros.h"
+#include "MemoryMeter.h"
+#include "SwapMeter.h"
+#include "SysArchMeter.h"
+#include "TasksMeter.h"
 #include "UptimeMeter.h"
 
 
@@ -42,6 +46,7 @@ const MeterClass* const Platform_meterTypes[] = {
    &TasksMeter_class,
    &BatteryMeter_class,
    &HostnameMeter_class,
+   &SysArchMeter_class,
    &UptimeMeter_class,
    &AllCPUsMeter_class,
    &AllCPUs2Meter_class,
@@ -92,6 +97,8 @@ double Platform_setCPUValues(Meter* this, int cpu) {
    double* v = this->values;
    v[CPU_METER_FREQUENCY] = NAN;
    v[CPU_METER_TEMPERATURE] = NAN;
+
+   this->curItems = 1;
 
    return 0.0;
 }

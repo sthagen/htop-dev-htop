@@ -42,14 +42,14 @@ void ScreenManager_delete(ScreenManager* this) {
    free(this);
 }
 
-inline int ScreenManager_size(ScreenManager* this) {
+inline int ScreenManager_size(const ScreenManager* this) {
    return this->panelCount;
 }
 
 void ScreenManager_add(ScreenManager* this, Panel* item, int size) {
    int lastX = 0;
    if (this->panelCount > 0) {
-      Panel* last = (Panel*) Vector_get(this->panels, this->panelCount - 1);
+      const Panel* last = (const Panel*) Vector_get(this->panels, this->panelCount - 1);
       lastX = last->x + last->w + 1;
    }
    int height = LINES - this->y1 + this->y2;
@@ -123,8 +123,8 @@ static void ScreenManager_drawPanels(ScreenManager* this, int focus, bool force_
    const int nPanels = this->panelCount;
    for (int i = 0; i < nPanels; i++) {
       Panel* panel = (Panel*) Vector_get(this->panels, i);
-      Panel_draw(panel, force_redraw, i == focus, !((panel == this->state->panel) && this->state->hideProcessSelection));
-      mvvline(panel->y, panel->x + panel->w, ' ', panel->h + 1);
+      Panel_draw(panel, force_redraw, i == focus, !((panel == this->state->panel) && this->state->hideProcessSelection), State_hideFunctionBar(this->state));
+      mvvline(panel->y, panel->x + panel->w, ' ', panel->h + (State_hideFunctionBar(this->state) ? 1 : 0));
    }
 }
 
@@ -141,7 +141,7 @@ void ScreenManager_run(ScreenManager* this, Panel** lastFocus, int* lastKey) {
 
    bool timedOut = true;
    bool redraw = true;
-   bool force_redraw = false;
+   bool force_redraw = true;
    bool rescan = false;
    int sortTimeout = 0;
    int resetSortTimeout = 5;
@@ -181,7 +181,7 @@ void ScreenManager_run(ScreenManager* this, Panel** lastFocus, int* lastKey) {
                            if (panel == panelFocus || this->allowFocusChange) {
                               focus = i;
                               panelFocus = panel;
-                              Object* oldSelection = Panel_getSelected(panel);
+                              const Object* oldSelection = Panel_getSelected(panel);
                               Panel_setSelected(panel, mevent.y - panel->y + panel->scrollV - 1);
                               if (Panel_getSelected(panel) == oldSelection) {
                                  ch = KEY_RECLICK;
@@ -202,7 +202,8 @@ void ScreenManager_run(ScreenManager* this, Panel** lastFocus, int* lastKey) {
          }
       }
       if (ch == ERR) {
-         sortTimeout--;
+         if (sortTimeout > 0)
+            sortTimeout--;
          if (prevCh == ch && !timedOut) {
             closeTimeout++;
             if (closeTimeout == 100) {

@@ -13,6 +13,7 @@ in the source distribution for its full text.
 
 #include "Macros.h"
 #include "ProvideCurses.h"
+#include "Settings.h"
 
 
 typedef enum TreeStr_ {
@@ -22,6 +23,8 @@ typedef enum TreeStr_ {
    TREE_STR_TEND,
    TREE_STR_OPEN,
    TREE_STR_SHUT,
+   TREE_STR_ASC,
+   TREE_STR_DESC,
    LAST_TREE_STR
 } TreeStr;
 
@@ -57,11 +60,13 @@ typedef enum ColorElements_ {
    METER_VALUE_IOWRITE,
    METER_VALUE_NOTICE,
    METER_VALUE_OK,
+   METER_VALUE_WARN,
    LED_COLOR,
    UPTIME,
    BATTERY,
    TASKS_RUNNING,
    SWAP,
+   SWAP_CACHE,
    PROCESS,
    PROCESS_SHADOW,
    PROCESS_TAG,
@@ -87,6 +92,10 @@ typedef enum ColorElements_ {
    MEMORY_BUFFERS,
    MEMORY_BUFFERS_TEXT,
    MEMORY_CACHE,
+   HUGEPAGE_1,
+   HUGEPAGE_2,
+   HUGEPAGE_3,
+   HUGEPAGE_4,
    LOAD,
    LOAD_AVERAGE_FIFTEEN,
    LOAD_AVERAGE_FIVE,
@@ -165,7 +174,7 @@ static inline void CRT_restorePrivileges(void) { }
 
 #endif /* HAVE_SETUID_ENABLED */
 
-void CRT_init(const int* delay, int colorScheme, bool allowUnicode);
+void CRT_init(const Settings* settings, bool allowUnicode);
 
 void CRT_done(void);
 

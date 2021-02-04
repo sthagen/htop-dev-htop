@@ -56,56 +56,131 @@ typedef enum ProcessField_ {
 struct Settings_;
 
 typedef struct Process_ {
+   /* Super object for emulated OOP */
    Object super;
 
+   /* Pointer to quasi-global data structures */
    const struct ProcessList_* processList;
    const struct Settings_* settings;
 
+   /* Process runtime (in hundredth of a second) */
    unsigned long long int time;
+
+   /* Process identifier */
    pid_t pid;
+
+   /* Parent process identifier */
    pid_t ppid;
+
+   /* Thread group identifier */
    pid_t tgid;
-   char* comm;  /* use Process_getCommand() for Command actually displayed */
-   int commLen;
-   int indent;
 
-   int basenameOffset;
-   bool updated;
+   /* Process group identifier */
+   int pgrp;
 
-   char state;
-   bool tag;
-   bool showChildren;
-   bool show;
-   bool wasShown;
-   unsigned int pgrp;
-   unsigned int session;
-   unsigned int tty_nr;
+   /* Session identifier */
+   int session;
+
+   /* Foreground group identifier of the controlling terminal */
    int tpgid;
-   uid_t st_uid;
-   unsigned long int flags;
-   int processor;
 
-   float percent_cpu;
-   float percent_mem;
+   /*
+    * Controlling terminal of the process.
+    * The minor device number is contained in the combination of bits 31 to 20 and 7 to 0; the major device number is in bits 15 to 8.
+    * */
+   unsigned int tty_nr;
+
+   /* User identifier */
+   uid_t st_uid;
+
+   /* User name */
    const char* user;
 
+   /*
+    * Process name including arguments.
+    * Use Process_getCommand() for Command actually displayed.
+    */
+   char* comm;
+
+   /* Offset in comm of the process basename */
+   int basenameOffset;
+
+   /* CPU number last executed on */
+   int processor;
+
+   /* CPU usage during last cycle (in percent) */
+   float percent_cpu;
+
+   /* Memory usage during last cycle (in percent) */
+   float percent_mem;
+
+   /* Scheduling priority */
    long int priority;
+
+   /* Nice value */
    long int nice;
+
+   /* Number of threads in this process */
    long int nlwp;
-   char starttime_show[8];
+
+   /* Process start time (in seconds elapsed since the Epoch) */
    time_t starttime_ctime;
 
+   /* Process start time (cached formatted string) */
+   char starttime_show[8];
+
+   /* Total program size (in kilobytes) */
    long m_virt;
+
+   /* Resident set size (in kilobytes) */
    long m_resident;
 
-   int exit_signal;
+   /* Number of minor faults the process has made which have not required loading a memory page from disk */
+   unsigned long int minflt;
 
+   /* Number of major faults the process has made which have required loading a memory page from disk */
+   unsigned long int majflt;
+
+   /*
+    * Process state (platform dependent):
+    *   D  -  Waiting
+    *   I  -  Idle
+    *   L  -  Acquiring lock
+    *   R  -  Running
+    *   S  -  Sleeping
+    *   T  -  Stopped (on a signal)
+    *   X  -  Dead
+    *   Z  -  Zombie
+    *   t  -  Tracing stop
+    *   ?  -  Unknown
+    */
+   char state;
+
+   /* Whether the process was updated during the current scan */
+   bool updated;
+
+   /* Whether the process was tagged by the user */
+   bool tag;
+
+   /* Whether to display this process */
+   bool show;
+
+   /* Whether this process was shown last cycle */
+   bool wasShown;
+
+   /* Whether to show children of this process in tree-mode */
+   bool showChildren;
+
+   /*
+    * Internal time counts for showing new and exited processes.
+    */
    time_t seenTs;
    time_t tombTs;
 
-   unsigned long int minflt;
-   unsigned long int majflt;
-
+   /*
+    * Internal state for tree-mode.
+    */
+   int indent;
    unsigned int tree_left;
    unsigned int tree_right;
    unsigned int tree_depth;
@@ -113,16 +188,28 @@ typedef struct Process_ {
 } Process;
 
 typedef struct ProcessFieldData_ {
+   /* Name (displayed in setup menu) */
    const char* name;
+
+   /* Title (display in main screen); must have same width as the printed values */
    const char* title;
+
+   /* Description (displayed in setup menu) */
    const char* description;
+
+   /* Scan flag to enable scan-method otherwise not run */
    uint32_t flags;
+
+   /* Whether the values are process identifies; adjusts the width of title and values if true */
    bool pidColumn;
+
+   /* Whether the column should be sorted in descending order by default */
+   bool defaultSortDesc;
 } ProcessFieldData;
 
 // Implemented in platform-specific code:
 void Process_writeField(const Process* this, RichString* str, ProcessField field);
-long Process_compare(const void* v1, const void* v2);
+int Process_compare(const void* v1, const void* v2);
 void Process_delete(Object* cast);
 bool Process_isThread(const Process* this);
 extern const ProcessFieldData Process_fields[LAST_PROCESSFIELD];
@@ -131,7 +218,7 @@ extern int Process_pidDigits;
 
 typedef Process*(*Process_New)(const struct Settings_*);
 typedef void (*Process_WriteField)(const Process*, RichString*, ProcessField);
-typedef long (*Process_CompareByKey)(const Process*, const Process*, ProcessField);
+typedef int (*Process_CompareByKey)(const Process*, const Process*, ProcessField);
 typedef const char* (*Process_GetCommandStr)(const Process*);
 
 typedef struct ProcessClass_ {
@@ -154,9 +241,6 @@ static inline bool Process_isChildOf(const Process* this, pid_t pid) {
    return pid == Process_getParentPid(this);
 }
 
-#define Process_sortState(state) ((state) == 'I' ? 0x100 : (state))
-
-
 #define ONE_K 1024UL
 #define ONE_M (ONE_K * ONE_K)
 #define ONE_G (ONE_M * ONE_K)
@@ -169,15 +253,21 @@ static inline bool Process_isChildOf(const Process* this, pid_t pid) {
 
 void Process_setupColumnWidths(void);
 
+/* Takes number in kilo units (base 1024) */
 void Process_humanNumber(RichString* str, unsigned long long number, bool coloring);
 
+/* Takes number in bare units (base 1000) */
 void Process_colorNumber(RichString* str, unsigned long long number, bool coloring);
 
+/* Takes number in hundredths of a seconds */
 void Process_printTime(RichString* str, unsigned long long totalHundredths);
 
 void Process_fillStarttimeBuffer(Process* this);
 
+/* Takes number in bare units (base 1024) */
 void Process_outputRate(RichString* str, char* buffer, size_t n, double rate, int coloring);
+
+void Process_printLeftAlignedField(RichString* str, int attr, const char* content, unsigned int width);
 
 void Process_display(const Object* cast, RichString* out);
 
@@ -199,8 +289,8 @@ bool Process_changePriorityBy(Process* this, Arg delta);
 
 bool Process_sendSignal(Process* this, Arg sgn);
 
-long Process_pidCompare(const void* v1, const void* v2);
+int Process_pidCompare(const void* v1, const void* v2);
 
-long Process_compareByKey_Base(const Process* p1, const Process* p2, ProcessField key);
+int Process_compareByKey_Base(const Process* p1, const Process* p2, ProcessField key);
 
 #endif

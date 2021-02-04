@@ -14,7 +14,6 @@ in the source distribution for its full text.
 #include <dirent.h>
 #include <fcntl.h>
 #include <inttypes.h>
-#include <limits.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -31,6 +30,7 @@ in the source distribution for its full text.
 #include "DateTimeMeter.h"
 #include "DiskIOMeter.h"
 #include "HostnameMeter.h"
+#include "HugePageMeter.h"
 #include "IOPriority.h"
 #include "IOPriorityPanel.h"
 #include "LinuxProcess.h"
@@ -49,6 +49,7 @@ in the source distribution for its full text.
 #include "SELinuxMeter.h"
 #include "Settings.h"
 #include "SwapMeter.h"
+#include "SysArchMeter.h"
 #include "SystemdMeter.h"
 #include "TasksMeter.h"
 #include "UptimeMeter.h"
@@ -131,13 +132,13 @@ void Platform_done(void) {
 static Htop_Reaction Platform_actionSetIOPriority(State* st) {
    Panel* panel = st->panel;
 
-   LinuxProcess* p = (LinuxProcess*) Panel_getSelected(panel);
+   const LinuxProcess* p = (const LinuxProcess*) Panel_getSelected(panel);
    if (!p)
       return HTOP_OK;
 
    IOPriority ioprio1 = p->ioPriority;
    Panel* ioprioPanel = IOPriorityPanel_new(ioprio1);
-   void* set = Action_pickFromVector(st, ioprioPanel, 21, true);
+   const void* set = Action_pickFromVector(st, ioprioPanel, 21, true);
    if (set) {
       IOPriority ioprio2 = IOPriorityPanel_getIOPriority(ioprioPanel);
       bool ok = MainPanel_foreachProcess((MainPanel*)panel, LinuxProcess_setIOPriority, (Arg) { .i = ioprio2 }, NULL);
@@ -162,6 +163,8 @@ const MeterClass* const Platform_meterTypes[] = {
    &LoadMeter_class,
    &MemoryMeter_class,
    &SwapMeter_class,
+   &SysArchMeter_class,
+   &HugePageMeter_class,
    &TasksMeter_class,
    &UptimeMeter_class,
    &BatteryMeter_class,
@@ -285,8 +288,8 @@ void Platform_setMemoryValues(Meter* this) {
    long int usedMem = pl->usedMem;
    long int buffersMem = pl->buffersMem;
    long int cachedMem = pl->cachedMem;
-   usedMem -= buffersMem + cachedMem;
-   this->total = pl->totalMem;
+   usedMem -= buffersMem + cachedMem + lpl->totalHugePageMem;
+   this->total = pl->totalMem - lpl->totalHugePageMem;
    this->values[0] = usedMem;
    this->values[1] = buffersMem;
    this->values[2] = cachedMem;
@@ -301,6 +304,7 @@ void Platform_setSwapValues(Meter* this) {
    const ProcessList* pl = this->pl;
    this->total = pl->totalSwap;
    this->values[0] = pl->usedSwap;
+   this->values[1] = pl->cachedSwap;
 }
 
 void Platform_setZramValues(Meter* this) {
@@ -366,7 +370,7 @@ char* Platform_getProcessEnv(pid_t pid) {
  */
 char* Platform_getInodeFilename(pid_t pid, ino_t inode) {
    struct stat sb;
-   struct dirent *de;
+   const struct dirent *de;
    DIR *dirp;
    ssize_t len;
    int fd;
@@ -596,11 +600,11 @@ static unsigned long int parseBatInfo(const char* fileName, const unsigned short
    memset(batteries, 0, MAX_BATTERIES * sizeof(char*));
 
    while (nBatteries < MAX_BATTERIES) {
-      struct dirent* dirEntry = readdir(batteryDir);
+      const struct dirent* dirEntry = readdir(batteryDir);
       if (!dirEntry)
          break;
 
-      char* entryName = dirEntry->d_name;
+      const char* entryName = dirEntry->d_name;
       if (!String_startsWith(entryName, "BAT"))
          continue;
 
@@ -653,7 +657,7 @@ static ACPresence procAcpiCheck(void) {
       return AC_ERROR;
 
    for (;;) {
-      struct dirent* dirEntry = readdir(dir);
+      const struct dirent* dirEntry = readdir(dir);
       if (!dirEntry)
          break;
 
@@ -728,7 +732,7 @@ static void Platform_Battery_getSysData(double* percent, ACPresence* isOnAC) {
    unsigned long int totalRemain = 0;
 
    for (;;) {
-      struct dirent* dirEntry = readdir(dir);
+      const struct dirent* dirEntry = readdir(dir);
       if (!dirEntry)
          break;
 
@@ -753,7 +757,7 @@ static void Platform_Battery_getSysData(double* percent, ACPresence* isOnAC) {
          }
 
          char* buf = buffer;
-         char* line = NULL;
+         const char* line;
          bool full = false;
          bool now = false;
          int fullSize = 0;

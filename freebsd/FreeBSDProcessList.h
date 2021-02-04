@@ -17,15 +17,11 @@ in the source distribution for its full text.
 #include "zfs/ZfsArcStats.h"
 
 
-#define JAIL_ERRMSGLEN 1024
-extern char jail_errmsg[JAIL_ERRMSGLEN];
-
 typedef struct CPUData_ {
    double userPercent;
    double nicePercent;
    double systemPercent;
    double irqPercent;
-   double idlePercent;
    double systemAllPercent;
 } CPUData;
 
@@ -35,8 +31,6 @@ typedef struct FreeBSDProcessList_ {
 
    unsigned long long int memWire;
    unsigned long long int memActive;
-   unsigned long long int memInactive;
-   unsigned long long int memFree;
 
    ZfsArcStats zfs;
 

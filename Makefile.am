@@ -1,10 +1,16 @@
-AUTOMAKE_OPTIONS = subdir-objects
-
 bin_PROGRAMS = htop
 
 dist_man_MANS = htop.1
-EXTRA_DIST = $(dist_man_MANS) htop.desktop htop.png htop.svg \
-install-sh autogen.sh missing
+EXTRA_DIST = \
+	$(dist_man_MANS) \
+	autogen.sh \
+	htop.desktop \
+	htop.png \
+	htop.svg \
+	build-aux/compile \
+	build-aux/depcomp \
+	build-aux/install-sh \
+	build-aux/missing
 applicationsdir = $(datadir)/applications
 applications_DATA = htop.desktop
 pixmapdir = $(datadir)/pixmaps
@@ -12,7 +18,7 @@ pixmap_DATA = htop.png
 appicondir = $(datadir)/icons/hicolor/scalable/apps
 appicon_DATA = htop.svg
 
-AM_CFLAGS += -pedantic -std=c99 -D_XOPEN_SOURCE_EXTENDED -DSYSCONFDIR=\"$(sysconfdir)\" -I"$(top_srcdir)/$(my_htop_platform)"
+AM_CFLAGS += -pedantic -std=c99 -D_XOPEN_SOURCE_EXTENDED -DSYSCONFDIR="\"$(sysconfdir)\"" -I"$(top_srcdir)/$(my_htop_platform)"
 AM_LDFLAGS =
 
 myhtopsources = \
@@ -61,6 +67,7 @@ myhtopsources = \
 	Settings.c \
 	SignalsPanel.c \
 	SwapMeter.c \
+	SysArchMeter.c \
 	TasksMeter.c \
 	TraceScreen.c \
 	UptimeMeter.c \
@@ -115,6 +122,7 @@ myhtopheaders = \
 	Settings.h \
 	SignalsPanel.h \
 	SwapMeter.h \
+	SysArchMeter.h \
 	TasksMeter.h \
 	TraceScreen.h \
 	UptimeMeter.h \
@@ -126,6 +134,7 @@ myhtopheaders = \
 # -----
 
 linux_platform_headers = \
+	linux/HugePageMeter.h \
 	linux/IOPriority.h \
 	linux/IOPriorityPanel.h \
 	linux/LibSensors.h \
@@ -145,6 +154,7 @@ linux_platform_headers = \
 if HTOP_LINUX
 AM_LDFLAGS += -rdynamic
 myhtopplatsources = \
+	linux/HugePageMeter.c \
 	linux/IOPriorityPanel.c \
 	linux/LibSensors.c \
 	linux/LinuxProcess.c \

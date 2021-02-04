@@ -5,6 +5,8 @@ Released under the GNU GPLv2, see the COPYING file
 in the source distribution for its full text.
 */
 
+#include "config.h" // IWYU pragma: keep
+
 #include "Platform.h"
 
 #include <devstat.h>
@@ -40,6 +42,7 @@ in the source distribution for its full text.
 #include "ProcessList.h"
 #include "Settings.h"
 #include "SwapMeter.h"
+#include "SysArchMeter.h"
 #include "TasksMeter.h"
 #include "UptimeMeter.h"
 #include "XUtils.h"
@@ -101,6 +104,7 @@ const MeterClass* const Platform_meterTypes[] = {
    &UptimeMeter_class,
    &BatteryMeter_class,
    &HostnameMeter_class,
+   &SysArchMeter_class,
    &AllCPUsMeter_class,
    &AllCPUs2Meter_class,
    &AllCPUs4Meter_class,
@@ -136,7 +140,7 @@ void Platform_setBindings(Htop_Action* keys) {
 
 int Platform_getUptime() {
    struct timeval bootTime, currTime;
-   int mib[2] = { CTL_KERN, KERN_BOOTTIME };
+   const int mib[2] = { CTL_KERN, KERN_BOOTTIME };
    size_t size = sizeof(bootTime);
 
    int err = sysctl(mib, 2, &bootTime, &size, NULL, 0);
@@ -150,7 +154,7 @@ int Platform_getUptime() {
 
 void Platform_getLoadAverage(double* one, double* five, double* fifteen) {
    struct loadavg loadAverage;
-   int mib[2] = { CTL_VM, VM_LOADAVG };
+   const int mib[2] = { CTL_VM, VM_LOADAVG };
    size_t size = sizeof(loadAverage);
 
    int err = sysctl(mib, 2, &loadAverage, &size, NULL, 0);
@@ -212,7 +216,6 @@ double Platform_setCPUValues(Meter* this, int cpu) {
 }
 
 void Platform_setMemoryValues(Meter* this) {
-   // TODO
    const ProcessList* pl = this->pl;
 
    this->total = pl->totalMem;
@@ -225,6 +228,7 @@ void Platform_setSwapValues(Meter* this) {
    const ProcessList* pl = this->pl;
    this->total = pl->totalSwap;
    this->values[0] = pl->usedSwap;
+   this->values[1] = NAN;
 }
 
 void Platform_setZfsArcValues(Meter* this) {
@@ -240,7 +244,7 @@ void Platform_setZfsCompressedArcValues(Meter* this) {
 }
 
 char* Platform_getProcessEnv(pid_t pid) {
-   int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_ENV, pid };
+   const int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_ENV, pid };
 
    size_t capacity = ARG_MAX;
    char* env = xMalloc(capacity);

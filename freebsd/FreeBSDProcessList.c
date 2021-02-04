@@ -5,11 +5,12 @@ Released under the GNU GPLv2, see the COPYING file
 in the source distribution for its full text.
 */
 
+#include "config.h" // IWYU pragma: keep
+
 #include "FreeBSDProcessList.h"
 
 #include <assert.h>
 #include <dirent.h>
-#include <err.h>
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
@@ -38,8 +39,6 @@ in the source distribution for its full text.
 #include "zfs/ZfsArcStats.h"
 #include "zfs/openzfs_sysctl.h"
 
-
-char jail_errmsg[JAIL_ERRMSGLEN];
 
 static int MIB_hw_physmem[2];
 static int MIB_vm_stats_vm_v_page_count[4];
@@ -145,7 +144,7 @@ ProcessList* ProcessList_new(UsersTable* usersTable, Hashtable* pidMatchList, ui
 
    fpl->kd = kvm_openfiles(NULL, "/dev/null", NULL, 0, errbuf);
    if (fpl->kd == NULL) {
-      errx(1, "kvm_open: %s", errbuf);
+      CRT_fatalError("kvm_openfiles() failed");
    }
 
    fpl->ttys = Hashtable_new(20, true);
@@ -249,8 +248,8 @@ static inline void FreeBSDProcessList_scanCPUTime(ProcessList* pl) {
       cpuData->systemPercent    = cp_time_p[CP_SYS];
       cpuData->irqPercent       = cp_time_p[CP_INTR];
       cpuData->systemAllPercent = cp_time_p[CP_SYS] + cp_time_p[CP_INTR];
-      // this one is not really used, but we store it anyway
-      cpuData->idlePercent      = cp_time_p[CP_IDLE];
+      // this one is not really used
+      //cpuData->idlePercent      = cp_time_p[CP_IDLE];
    }
 }
 
@@ -412,42 +411,28 @@ static char* FreeBSDProcessList_readProcessName(kvm_t* kd, const struct kinfo_pr
 }
 
 static char* FreeBSDProcessList_readJailName(const struct kinfo_proc* kproc) {
-   char*  jname = NULL;
-   char   jnamebuf[MAXHOSTNAMELEN];
+   if (kproc->ki_jid == 0)
+      return xStrdup("-");
 
-   if (kproc->ki_jid != 0 ) {
-      struct iovec jiov[6];
+   char jnamebuf[MAXHOSTNAMELEN] = {0};
+   struct iovec jiov[4];
 
-      memset(jnamebuf, 0, sizeof(jnamebuf));
 IGNORE_WCASTQUAL_BEGIN
-      *(const void**)&jiov[0].iov_base = "jid";
-      jiov[0].iov_len = sizeof("jid");
-      jiov[1].iov_base = (void*) &kproc->ki_jid;
-      jiov[1].iov_len = sizeof(kproc->ki_jid);
-      *(const void**)&jiov[2].iov_base = "name";
-      jiov[2].iov_len = sizeof("name");
-      jiov[3].iov_base = jnamebuf;
-      jiov[3].iov_len = sizeof(jnamebuf);
-      *(const void**)&jiov[4].iov_base = "errmsg";
-      jiov[4].iov_len = sizeof("errmsg");
-      jiov[5].iov_base = jail_errmsg;
-      jiov[5].iov_len = JAIL_ERRMSGLEN;
+   *(const void**)&jiov[0].iov_base = "jid";
+   jiov[0].iov_len = sizeof("jid");
+   jiov[1].iov_base = (void*) &kproc->ki_jid;
+   jiov[1].iov_len = sizeof(kproc->ki_jid);
+   *(const void**)&jiov[2].iov_base = "name";
+   jiov[2].iov_len = sizeof("name");
+   jiov[3].iov_base = jnamebuf;
+   jiov[3].iov_len = sizeof(jnamebuf);
 IGNORE_WCASTQUAL_END
-      jail_errmsg[0] = 0;
 
-      int jid = jail_get(jiov, 6, 0);
-      if (jid < 0) {
-         if (!jail_errmsg[0]) {
-            xSnprintf(jail_errmsg, JAIL_ERRMSGLEN, "jail_get: %s", strerror(errno));
-         }
-      } else if (jid == kproc->ki_jid) {
-         jname = xStrdup(jnamebuf);
-      }
-   } else {
-      jname = xStrdup("-");
-   }
+   int jid = jail_get(jiov, 4, 0);
+   if (jid == kproc->ki_jid)
+      return xStrdup(jnamebuf);
 
-   return jname;
+   return NULL;
 }
 
 void ProcessList_goThroughEntries(ProcessList* super, bool pauseProcessUpdate) {
@@ -470,12 +455,11 @@ void ProcessList_goThroughEntries(ProcessList* super, bool pauseProcessUpdate) {
    }
 
    int count = 0;
-   struct kinfo_proc* kprocs = kvm_getprocs(fpl->kd, KERN_PROC_PROC, 0, &count);
+   const struct kinfo_proc* kprocs = kvm_getprocs(fpl->kd, KERN_PROC_PROC, 0, &count);
 
    for (int i = 0; i < count; i++) {
-      struct kinfo_proc* kproc = &kprocs[i];
+      const struct kinfo_proc* kproc = &kprocs[i];
       bool preExisting = false;
-      // TODO: bool isIdleProcess = false;
       Process* proc = ProcessList_getProcess(super, kproc->ki_pid, &preExisting, FreeBSDProcess_new);
       FreeBSDProcess* fp = (FreeBSDProcess*) proc;
 
@@ -484,11 +468,7 @@ void ProcessList_goThroughEntries(ProcessList* super, bool pauseProcessUpdate) {
       if (!preExisting) {
          fp->jid = kproc->ki_jid;
          proc->pid = kproc->ki_pid;
-         if ( ! ((kproc->ki_pid == 0) || (kproc->ki_pid == 1) ) && kproc->ki_flag & P_SYSTEM) {
-            fp->kernel = 1;
-         } else {
-            fp->kernel = 0;
-         }
+         fp->isKernelThread = kproc->ki_pid != 0 && kproc->ki_pid != 1 && (kproc->ki_flag & P_SYSTEM);
          proc->ppid = kproc->ki_ppid;
          proc->tpgid = kproc->ki_tpgid;
          proc->tgid = kproc->ki_pid;
@@ -530,19 +510,13 @@ void ProcessList_goThroughEntries(ProcessList* super, bool pauseProcessUpdate) {
       proc->percent_cpu = 100.0 * ((double)kproc->ki_pctcpu / (double)kernelFScale);
       proc->percent_mem = 100.0 * proc->m_resident / (double)(super->totalMem);
 
-      /*
-       * TODO
-       * if (proc->percent_cpu > 0.1) {
-       *     // system idle process should own all CPU time left regardless of CPU count
-       *     if ( strcmp("idle", kproc->ki_comm) == 0 ) {
-       *         isIdleProcess = true;
-       *     }
-       * }
-       */
+      proc->processor = kproc->ki_lastcpu;
+
+      proc->majflt = kproc->ki_cow;
 
       proc->priority = kproc->ki_pri.pri_level - PZERO;
 
-      if (strcmp("intr", kproc->ki_comm) == 0 && kproc->ki_flag & P_SYSTEM) {
+      if (String_eq("intr", kproc->ki_comm) && (kproc->ki_flag & P_SYSTEM)) {
          proc->nice = 0; //@etosan: intr kernel process (not thread) has weird nice value
       } else if (kproc->ki_pri.pri_class == PRI_TIMESHARE) {
          proc->nice = kproc->ki_nice - NZERO;

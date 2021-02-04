@@ -19,6 +19,7 @@ in the source distribution for its full text.
 #include "DateMeter.h"
 #include "DateTimeMeter.h"
 #include "HostnameMeter.h"
+#include "SysArchMeter.h"
 #include "UptimeMeter.h"
 #include "zfs/ZfsArcMeter.h"
 #include "zfs/ZfsCompressedArcMeter.h"
@@ -100,6 +101,7 @@ const MeterClass* const Platform_meterTypes[] = {
    &TasksMeter_class,
    &BatteryMeter_class,
    &HostnameMeter_class,
+   &SysArchMeter_class,
    &UptimeMeter_class,
    &AllCPUsMeter_class,
    &AllCPUs2Meter_class,
@@ -138,7 +140,7 @@ int Platform_getUptime() {
    struct utmpx* ent;
 
    while (( ent = getutxent() )) {
-      if ( !strcmp("system boot", ent->ut_line )) {
+      if ( String_eq("system boot", ent->ut_line )) {
          boot_time = ent->ut_tv.tv_sec;
       }
    }
@@ -205,7 +207,7 @@ double Platform_setCPUValues(Meter* this, int cpu) {
 
    percent = isnan(percent) ? 0.0 : CLAMP(percent, 0.0, 100.0);
 
-   v[CPU_METER_FREQUENCY] = NAN;
+   v[CPU_METER_FREQUENCY] = cpuData->frequency;
    v[CPU_METER_TEMPERATURE] = NAN;
 
    return percent;
@@ -223,6 +225,7 @@ void Platform_setSwapValues(Meter* this) {
    const ProcessList* pl = this->pl;
    this->total = pl->totalSwap;
    this->values[0] = pl->usedSwap;
+   this->values[1] = NAN;
 }
 
 void Platform_setZfsArcValues(Meter* this) {

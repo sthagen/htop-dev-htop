@@ -35,14 +35,14 @@ static const char* const TraceScreenKeys[] = {"F3", "F4", "F8", "F9", "Esc"};
 
 static const int TraceScreenEvents[] = {KEY_F(3), KEY_F(4), KEY_F(8), KEY_F(9), 27};
 
-TraceScreen* TraceScreen_new(Process* process) {
+TraceScreen* TraceScreen_new(const Process* process) {
    // This initializes all TraceScreen variables to "false" so only default = true ones need to be set below
    TraceScreen* this = xCalloc(1, sizeof(TraceScreen));
    Object_setClass(this, Class(TraceScreen));
    this->tracing = true;
    FunctionBar* fuBar = FunctionBar_new(TraceScreenFunctions, TraceScreenKeys, TraceScreenEvents);
    CRT_disableDelay();
-   return (TraceScreen*) InfoScreen_init(&this->super, process, fuBar, LINES - 2, "");
+   return (TraceScreen*) InfoScreen_init(&this->super, process, fuBar, LINES - 2, " ");
 }
 
 void TraceScreen_delete(Object* cast) {

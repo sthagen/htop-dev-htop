@@ -43,10 +43,9 @@ in the source distribution for its full text.
 Object* Action_pickFromVector(State* st, Panel* list, int x, bool followProcess) {
    Panel* panel = st->panel;
    Header* header = st->header;
-   Settings* settings = st->settings;
 
    int y = panel->y;
-   ScreenManager* scr = ScreenManager_new(header, settings, st, false);
+   ScreenManager* scr = ScreenManager_new(header, st->settings, st, false);
    scr->allowFocusChange = false;
    ScreenManager_add(scr, list, x - 1);
    ScreenManager_add(scr, panel, -1);
@@ -67,7 +66,7 @@ Object* Action_pickFromVector(State* st, Panel* list, int x, bool followProcess)
    Panel_resize(panel, COLS, LINES - y - 1);
    if (panelFocus == list && ch == 13) {
       if (followProcess) {
-         Process* selected = (Process*)Panel_getSelected(panel);
+         const Process* selected = (const Process*)Panel_getSelected(panel);
          if (selected && selected->pid == pid)
             return Panel_getSelected(list);
 
@@ -104,7 +103,7 @@ static bool changePriority(MainPanel* panel, int delta) {
    return anyTagged;
 }
 
-static void addUserToVector(hkey_t key, void* userCast, void* panelCast) {
+static void addUserToVector(ht_key_t key, void* userCast, void* panelCast) {
    const char* user = userCast;
    Panel* panel = panelCast;
    Panel_add(panel, (Object*) ListItem_new(user, key));
@@ -141,7 +140,7 @@ static bool expandCollapse(Panel* panel) {
 }
 
 static bool collapseIntoParent(Panel* panel) {
-   Process* p = (Process*) Panel_getSelected(panel);
+   const Process* p = (Process*) Panel_getSelected(panel);
    if (!p)
       return false;
 
@@ -162,11 +161,13 @@ Htop_Reaction Action_setSortKey(Settings* settings, ProcessField sortKey) {
    return HTOP_REFRESH | HTOP_SAVE_SETTINGS | HTOP_UPDATE_PANELHDR | HTOP_KEEP_FOLLOWING;
 }
 
-static Htop_Reaction sortBy(State* st) {
+// ----------------------------------------
+
+static Htop_Reaction actionSetSortColumn(State* st) {
    Htop_Reaction reaction = HTOP_OK;
-   Panel* sortPanel = Panel_new(0, 0, 0, 0, true, Class(ListItem), FunctionBar_newEnterEsc("Sort   ", "Cancel "));
+   Panel* sortPanel = Panel_new(0, 0, 0, 0, Class(ListItem), true, FunctionBar_newEnterEsc("Sort   ", "Cancel "));
    Panel_setHeader(sortPanel, "Sort by");
-   ProcessField* fields = st->settings->fields;
+   const ProcessField* fields = st->settings->fields;
    for (int i = 0; fields[i]; i++) {
       char* name = String_trim(Process_fields[fields[i]].name);
       Panel_add(sortPanel, (Object*) ListItem_new(name, fields[i]));
@@ -175,7 +176,7 @@ static Htop_Reaction sortBy(State* st) {
 
       free(name);
    }
-   ListItem* field = (ListItem*) Action_pickFromVector(st, sortPanel, 15, false);
+   const ListItem* field = (const ListItem*) Action_pickFromVector(st, sortPanel, 15, false);
    if (field) {
       reaction |= Action_setSortKey(st->settings, field->key);
    }
@@ -187,12 +188,8 @@ static Htop_Reaction sortBy(State* st) {
    return reaction | HTOP_REFRESH | HTOP_REDRAW_BAR | HTOP_UPDATE_PANELHDR;
 }
 
-// ----------------------------------------
-
-static Htop_Reaction actionResize(State* st) {
-   clear();
-   Panel_resize(st->panel, COLS, LINES - (st->panel->y) - 1);
-   return HTOP_REDRAW_BAR;
+static Htop_Reaction actionSortByPID(State* st) {
+   return Action_setSortKey(st->settings, PID);
 }
 
 static Htop_Reaction actionSortByMemory(State* st) {
@@ -250,16 +247,6 @@ static Htop_Reaction actionIncSearch(State* st) {
    return HTOP_REFRESH | HTOP_KEEP_FOLLOWING;
 }
 
-static Htop_Reaction actionIncNext(State* st) {
-   IncSet_next(((MainPanel*)st->panel)->inc, INC_SEARCH, st->panel, (IncMode_GetPanelValue) MainPanel_getValue);
-   return HTOP_REFRESH | HTOP_KEEP_FOLLOWING;
-}
-
-static Htop_Reaction actionIncPrev(State* st) {
-   IncSet_prev(((MainPanel*)st->panel)->inc, INC_SEARCH, st->panel, (IncMode_GetPanelValue) MainPanel_getValue);
-   return HTOP_REFRESH | HTOP_KEEP_FOLLOWING;
-}
-
 static Htop_Reaction actionHigherPriority(State* st) {
    bool changed = changePriority((MainPanel*)st->panel, -1);
    return changed ? HTOP_REFRESH : HTOP_OK;
@@ -275,10 +262,6 @@ static Htop_Reaction actionInvertSortOrder(State* st) {
    if (st->pauseProcessUpdate)
       ProcessList_sort(st->pl);
    return HTOP_REFRESH | HTOP_SAVE_SETTINGS;
-}
-
-static Htop_Reaction actionSetSortColumn(State* st) {
-   return sortBy(st);
 }
 
 static Htop_Reaction actionExpandOrCollapse(State* st) {
@@ -309,7 +292,7 @@ static Htop_Reaction actionSetAffinity(State* st) {
 #if (defined(HAVE_LIBHWLOC) || defined(HAVE_LINUX_AFFINITY))
    Panel* panel = st->panel;
 
-   Process* p = (Process*) Panel_getSelected(panel);
+   const Process* p = (const Process*) Panel_getSelected(panel);
    if (!p)
       return HTOP_OK;
 
@@ -322,7 +305,7 @@ static Htop_Reaction actionSetAffinity(State* st) {
    width += 1; /* we add a gap between the panels */
    Affinity_delete(affinity1);
 
-   void* set = Action_pickFromVector(st, affinityPanel, width, true);
+   const void* set = Action_pickFromVector(st, affinityPanel, width, true);
    if (set) {
       Affinity* affinity2 = AffinityPanel_getAffinity(affinityPanel, st->pl);
       bool ok = MainPanel_foreachProcess((MainPanel*)panel, Affinity_set, (Arg) { .v = affinity2 }, NULL);
@@ -337,11 +320,11 @@ static Htop_Reaction actionSetAffinity(State* st) {
 
 static Htop_Reaction actionKill(State* st) {
    Panel* signalsPanel = SignalsPanel_new();
-   ListItem* sgn = (ListItem*) Action_pickFromVector(st, signalsPanel, 15, true);
+   const ListItem* sgn = (ListItem*) Action_pickFromVector(st, signalsPanel, 15, true);
    if (sgn) {
       if (sgn->key != 0) {
          Panel_setHeader(st->panel, "Sending...");
-         Panel_draw(st->panel, false, true, true);
+         Panel_draw(st->panel, false, true, true, State_hideFunctionBar(st));
          refresh();
          MainPanel_foreachProcess((MainPanel*)st->panel, Process_sendSignal, (Arg) { .i = sgn->key }, NULL);
          napms(500);
@@ -352,13 +335,13 @@ static Htop_Reaction actionKill(State* st) {
 }
 
 static Htop_Reaction actionFilterByUser(State* st) {
-   Panel* usersPanel = Panel_new(0, 0, 0, 0, true, Class(ListItem), FunctionBar_newEnterEsc("Show   ", "Cancel "));
+   Panel* usersPanel = Panel_new(0, 0, 0, 0, Class(ListItem), true, FunctionBar_newEnterEsc("Show   ", "Cancel "));
    Panel_setHeader(usersPanel, "Show processes of:");
    UsersTable_foreach(st->ut, addUserToVector, usersPanel);
    Vector_insertionSort(usersPanel->items);
    ListItem* allUsers = ListItem_new("All users", -1);
    Panel_insert(usersPanel, 0, (Object*) allUsers);
-   ListItem* picked = (ListItem*) Action_pickFromVector(st, usersPanel, 20, false);
+   const ListItem* picked = (ListItem*) Action_pickFromVector(st, usersPanel, 20, false);
    if (picked) {
       if (picked == allUsers) {
          st->pl->userId = (uid_t)-1;
@@ -378,7 +361,6 @@ Htop_Reaction Action_follow(State* st) {
 
 static Htop_Reaction actionSetup(State* st) {
    Action_runSetup(st);
-   // TODO: shouldn't need this, colors should be dynamic
    int headerHeight = Header_calculateHeight(st->header);
    Panel_move(st->panel, 0, headerHeight);
    Panel_resize(st->panel, COLS, LINES-headerHeight-1);
@@ -386,7 +368,7 @@ static Htop_Reaction actionSetup(State* st) {
 }
 
 static Htop_Reaction actionLsof(State* st) {
-   Process* p = (Process*) Panel_getSelected(st->panel);
+   const Process* p = (Process*) Panel_getSelected(st->panel);
    if (!p)
       return HTOP_OK;
 
@@ -399,7 +381,7 @@ static Htop_Reaction actionLsof(State* st) {
 }
 
 static Htop_Reaction actionShowLocks(State* st) {
-   Process* p = (Process*) Panel_getSelected(st->panel);
+   const Process* p = (Process*) Panel_getSelected(st->panel);
    if (!p) return HTOP_OK;
    ProcessLocksScreen* pls = ProcessLocksScreen_new(p);
    InfoScreen_run((InfoScreen*)pls);
@@ -410,7 +392,7 @@ static Htop_Reaction actionShowLocks(State* st) {
 }
 
 static Htop_Reaction actionStrace(State* st) {
-   Process* p = (Process*) Panel_getSelected(st->panel);
+   const Process* p = (Process*) Panel_getSelected(st->panel);
    if (!p)
       return HTOP_OK;
 
@@ -462,7 +444,7 @@ static const struct {
    { .key = "      K: ", .info = "hide/show kernel threads" },
    { .key = "      F: ", .info = "cursor follows process" },
    { .key = "    + -: ", .info = "expand/collapse tree" },
-   { .key = "  P M T: ", .info = "sort by CPU%, MEM% or TIME" },
+   { .key = "N P M T: ", .info = "sort by PID, CPU%, MEM% or TIME" },
    { .key = "      I: ", .info = "invert sort order" },
    { .key = " F6 > .: ", .info = "select sort column" },
    { .key = NULL, .info = NULL }
@@ -499,8 +481,6 @@ static inline void addattrstr( int attr, const char* str) {
 }
 
 static Htop_Reaction actionHelp(State* st) {
-   Settings* settings = st->settings;
-
    clear();
    attrset(CRT_colors[HELP_BOLD]);
 
@@ -517,7 +497,7 @@ static Htop_Reaction actionHelp(State* st) {
    mvaddstr(line++, 0, "CPU usage bar: ");
 
    addattrstr(CRT_colors[BAR_BORDER], "[");
-   if (settings->detailedCPUTime) {
+   if (st->settings->detailedCPUTime) {
       addattrstr(CRT_colors[CPU_NICE_TEXT], "low"); addstr("/");
       addattrstr(CRT_colors[CPU_NORMAL], "normal"); addstr("/");
       addattrstr(CRT_colors[CPU_SYSTEM], "kernel"); addstr("/");
@@ -547,7 +527,13 @@ static Htop_Reaction actionHelp(State* st) {
    mvaddstr(line++, 0, "Swap bar:      ");
    addattrstr(CRT_colors[BAR_BORDER], "[");
    addattrstr(CRT_colors[SWAP], "used");
+#ifdef HTOP_LINUX
+   addattrstr(CRT_colors[BAR_SHADOW], "/");
+   addattrstr(CRT_colors[SWAP_CACHE], "cache");
+   addattrstr(CRT_colors[BAR_SHADOW], "                                    used/total");
+#else
    addattrstr(CRT_colors[BAR_SHADOW], "                                          used/total");
+#endif
    addattrstr(CRT_colors[BAR_BORDER], "]");
    attrset(CRT_colors[DEFAULT_COLOR]);
    mvaddstr(line++, 0, "Type and layout of header meters are configurable in the setup screen.");
@@ -563,24 +549,24 @@ static Htop_Reaction actionHelp(State* st) {
    int item;
    for (item = 0; helpLeft[item].key; item++) {
       attrset(CRT_colors[DEFAULT_COLOR]);
-      mvaddstr(line + item, 9,  helpLeft[item].info);
+      mvaddstr(line + item, 10, helpLeft[item].info);
       attrset(CRT_colors[HELP_BOLD]);
-      mvaddstr(line + item, 0,  helpLeft[item].key);
+      mvaddstr(line + item, 1,  helpLeft[item].key);
       if (String_eq(helpLeft[item].key, "      H: ")) {
          attrset(CRT_colors[PROCESS_THREAD]);
-         mvaddstr(line + item, 32, "threads");
+         mvaddstr(line + item, 33, "threads");
       } else if (String_eq(helpLeft[item].key, "      K: ")) {
          attrset(CRT_colors[PROCESS_THREAD]);
-         mvaddstr(line + item, 26, "threads");
+         mvaddstr(line + item, 27, "threads");
       }
    }
    int leftHelpItems = item;
 
    for (item = 0; helpRight[item].key; item++) {
       attrset(CRT_colors[HELP_BOLD]);
-      mvaddstr(line + item, 40, helpRight[item].key);
+      mvaddstr(line + item, 41, helpRight[item].key);
       attrset(CRT_colors[DEFAULT_COLOR]);
-      mvaddstr(line + item, 49, helpRight[item].info);
+      mvaddstr(line + item, 50, helpRight[item].info);
    }
    line += MAXIMUM(leftHelpItems, item);
    line++;
@@ -655,7 +641,7 @@ void Action_setBindings(Htop_Action* keys) {
    keys['I'] = actionInvertSortOrder;
    keys['K'] = actionToggleKernelThreads;
    keys['M'] = actionSortByMemory;
-   keys['N'] = actionIncPrev;
+   keys['N'] = actionSortByPID;
    keys['P'] = actionSortByCPU;
    keys['S'] = actionSetup;
    keys['T'] = actionSortByTime;
@@ -673,7 +659,6 @@ void Action_setBindings(Htop_Action* keys) {
    keys['k'] = actionKill;
    keys['l'] = actionLsof;
    keys['m'] = actionToggleMergedCommand;
-   keys['n'] = actionIncNext;
    keys['p'] = actionToggleProgramPath;
    keys['q'] = actionQuit;
    keys['s'] = actionStrace;
@@ -693,5 +678,4 @@ void Action_setBindings(Htop_Action* keys) {
    keys[KEY_F(10)] = actionQuit;
    keys[KEY_F(18)] = actionExpandCollapseOrSortColumn;
    keys[KEY_RECLICK] = actionExpandOrCollapse;
-   keys[KEY_RESIZE] = actionResize;
 }
