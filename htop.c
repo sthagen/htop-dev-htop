@@ -294,9 +294,8 @@ static void millisleep(unsigned long millisec) {
 }
 
 static void setCommFilter(State* state, char** commFilter) {
-   MainPanel* panel = (MainPanel*)state->panel;
    ProcessList* pl = state->pl;
-   IncSet* inc = panel->inc;
+   IncSet* inc = state->mainPanel->inc;
 
    IncSet_setFilter(inc, *commFilter);
    pl->incFilter = IncSet_filter(inc);
@@ -453,7 +452,7 @@ int main(int argc, char** argv) {
       .settings = settings,
       .ut = ut,
       .pl = pl,
-      .panel = (Panel*) panel,
+      .mainPanel = panel,
       .header = header,
       .pauseProcessUpdate = false,
       .hideProcessSelection = false,
@@ -469,6 +468,9 @@ int main(int argc, char** argv) {
    ProcessList_scan(pl, false);
    millisleep(75);
    ProcessList_scan(pl, false);
+
+   if (settings->allBranchesCollapsed)
+      ProcessList_collapseAllBranches(pl);
 
    ScreenManager_run(scr, NULL, NULL);
 

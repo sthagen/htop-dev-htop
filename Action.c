@@ -41,18 +41,18 @@ in the source distribution for its full text.
 
 
 Object* Action_pickFromVector(State* st, Panel* list, int x, bool followProcess) {
-   Panel* panel = st->panel;
+   MainPanel* mainPanel = st->mainPanel;
    Header* header = st->header;
 
-   int y = panel->y;
+   int y = ((Panel*)mainPanel)->y;
    ScreenManager* scr = ScreenManager_new(header, st->settings, st, false);
    scr->allowFocusChange = false;
    ScreenManager_add(scr, list, x - 1);
-   ScreenManager_add(scr, panel, -1);
+   ScreenManager_add(scr, (Panel*)mainPanel, -1);
    Panel* panelFocus;
    int ch;
    bool unfollow = false;
-   int pid = followProcess ? MainPanel_selectedPid((MainPanel*)panel) : -1;
+   int pid = followProcess ? MainPanel_selectedPid(mainPanel) : -1;
    if (followProcess && header->pl->following == -1) {
       header->pl->following = pid;
       unfollow = true;
@@ -62,11 +62,11 @@ Object* Action_pickFromVector(State* st, Panel* list, int x, bool followProcess)
       header->pl->following = -1;
    }
    ScreenManager_delete(scr);
-   Panel_move(panel, 0, y);
-   Panel_resize(panel, COLS, LINES - y - 1);
+   Panel_move((Panel*)mainPanel, 0, y);
+   Panel_resize((Panel*)mainPanel, COLS, LINES - y - 1);
    if (panelFocus == list && ch == 13) {
       if (followProcess) {
-         const Process* selected = (const Process*)Panel_getSelected(panel);
+         const Process* selected = (const Process*)Panel_getSelected((Panel*)mainPanel);
          if (selected && selected->pid == pid)
             return Panel_getSelected(list);
 
@@ -226,34 +226,40 @@ static Htop_Reaction actionToggleMergedCommand(State* st) {
 
 static Htop_Reaction actionToggleTreeView(State* st) {
    st->settings->treeView = !st->settings->treeView;
-   if (st->settings->treeView) {
-      st->settings->treeDirection = 1;
-   }
 
-   ProcessList_expandTree(st->pl);
+   if (!st->settings->allBranchesCollapsed) ProcessList_expandTree(st->pl);
    return HTOP_REFRESH | HTOP_SAVE_SETTINGS | HTOP_KEEP_FOLLOWING | HTOP_REDRAW_BAR | HTOP_UPDATE_PANELHDR;
 }
 
+static Htop_Reaction actionExpandOrCollapseAllBranches(State* st) {
+   st->settings->allBranchesCollapsed = !st->settings->allBranchesCollapsed;
+   if (st->settings->allBranchesCollapsed)
+      ProcessList_collapseAllBranches(st->pl);
+   else
+      ProcessList_expandTree(st->pl);
+   return HTOP_REFRESH | HTOP_SAVE_SETTINGS;
+}
+
 static Htop_Reaction actionIncFilter(State* st) {
-   IncSet* inc = ((MainPanel*)st->panel)->inc;
-   IncSet_activate(inc, INC_FILTER, st->panel);
+   IncSet* inc = (st->mainPanel)->inc;
+   IncSet_activate(inc, INC_FILTER, (Panel*)st->mainPanel);
    st->pl->incFilter = IncSet_filter(inc);
    return HTOP_REFRESH | HTOP_KEEP_FOLLOWING;
 }
 
 static Htop_Reaction actionIncSearch(State* st) {
-   IncSet_reset(((MainPanel*)st->panel)->inc, INC_SEARCH);
-   IncSet_activate(((MainPanel*)st->panel)->inc, INC_SEARCH, st->panel);
+   IncSet_reset(st->mainPanel->inc, INC_SEARCH);
+   IncSet_activate(st->mainPanel->inc, INC_SEARCH, (Panel*)st->mainPanel);
    return HTOP_REFRESH | HTOP_KEEP_FOLLOWING;
 }
 
 static Htop_Reaction actionHigherPriority(State* st) {
-   bool changed = changePriority((MainPanel*)st->panel, -1);
+   bool changed = changePriority(st->mainPanel, -1);
    return changed ? HTOP_REFRESH : HTOP_OK;
 }
 
 static Htop_Reaction actionLowerPriority(State* st) {
-   bool changed = changePriority((MainPanel*)st->panel, 1);
+   bool changed = changePriority(st->mainPanel, 1);
    return changed ? HTOP_REFRESH : HTOP_OK;
 }
 
@@ -265,7 +271,7 @@ static Htop_Reaction actionInvertSortOrder(State* st) {
 }
 
 static Htop_Reaction actionExpandOrCollapse(State* st) {
-   bool changed = expandCollapse(st->panel);
+   bool changed = expandCollapse((Panel*)st->mainPanel);
    return changed ? HTOP_RECALCULATE : HTOP_OK;
 }
 
@@ -273,7 +279,7 @@ static Htop_Reaction actionCollapseIntoParent(State* st) {
    if (!st->settings->treeView) {
       return HTOP_OK;
    }
-   bool changed = collapseIntoParent(st->panel);
+   bool changed = collapseIntoParent((Panel*)st->mainPanel);
    return changed ? HTOP_RECALCULATE : HTOP_OK;
 }
 
@@ -290,9 +296,7 @@ static Htop_Reaction actionSetAffinity(State* st) {
       return HTOP_OK;
 
 #if (defined(HAVE_LIBHWLOC) || defined(HAVE_LINUX_AFFINITY))
-   Panel* panel = st->panel;
-
-   const Process* p = (const Process*) Panel_getSelected(panel);
+   const Process* p = (const Process*) Panel_getSelected((Panel*)st->mainPanel);
    if (!p)
       return HTOP_OK;
 
@@ -308,7 +312,7 @@ static Htop_Reaction actionSetAffinity(State* st) {
    const void* set = Action_pickFromVector(st, affinityPanel, width, true);
    if (set) {
       Affinity* affinity2 = AffinityPanel_getAffinity(affinityPanel, st->pl);
-      bool ok = MainPanel_foreachProcess((MainPanel*)panel, Affinity_set, (Arg) { .v = affinity2 }, NULL);
+      bool ok = MainPanel_foreachProcess(st->mainPanel, Affinity_set, (Arg) { .v = affinity2 }, NULL);
       if (!ok)
          beep();
       Affinity_delete(affinity2);
@@ -323,10 +327,10 @@ static Htop_Reaction actionKill(State* st) {
    const ListItem* sgn = (ListItem*) Action_pickFromVector(st, signalsPanel, 15, true);
    if (sgn) {
       if (sgn->key != 0) {
-         Panel_setHeader(st->panel, "Sending...");
-         Panel_draw(st->panel, false, true, true, State_hideFunctionBar(st));
+         Panel_setHeader((Panel*)st->mainPanel, "Sending...");
+         Panel_draw((Panel*)st->mainPanel, false, true, true, State_hideFunctionBar(st));
          refresh();
-         MainPanel_foreachProcess((MainPanel*)st->panel, Process_sendSignal, (Arg) { .i = sgn->key }, NULL);
+         MainPanel_foreachProcess(st->mainPanel, Process_sendSignal, (Arg) { .i = sgn->key }, NULL);
          napms(500);
       }
    }
@@ -354,21 +358,21 @@ static Htop_Reaction actionFilterByUser(State* st) {
 }
 
 Htop_Reaction Action_follow(State* st) {
-   st->pl->following = MainPanel_selectedPid((MainPanel*)st->panel);
-   Panel_setSelectionColor(st->panel, PANEL_SELECTION_FOLLOW);
+   st->pl->following = MainPanel_selectedPid(st->mainPanel);
+   Panel_setSelectionColor((Panel*)st->mainPanel, PANEL_SELECTION_FOLLOW);
    return HTOP_KEEP_FOLLOWING;
 }
 
 static Htop_Reaction actionSetup(State* st) {
    Action_runSetup(st);
    int headerHeight = Header_calculateHeight(st->header);
-   Panel_move(st->panel, 0, headerHeight);
-   Panel_resize(st->panel, COLS, LINES-headerHeight-1);
+   Panel_move((Panel*)st->mainPanel, 0, headerHeight);
+   Panel_resize((Panel*)st->mainPanel, COLS, LINES-headerHeight-1);
    return HTOP_REFRESH | HTOP_REDRAW_BAR | HTOP_UPDATE_PANELHDR;
 }
 
 static Htop_Reaction actionLsof(State* st) {
-   const Process* p = (Process*) Panel_getSelected(st->panel);
+   const Process* p = (Process*) Panel_getSelected((Panel*)st->mainPanel);
    if (!p)
       return HTOP_OK;
 
@@ -381,7 +385,7 @@ static Htop_Reaction actionLsof(State* st) {
 }
 
 static Htop_Reaction actionShowLocks(State* st) {
-   const Process* p = (Process*) Panel_getSelected(st->panel);
+   const Process* p = (Process*) Panel_getSelected((Panel*)st->mainPanel);
    if (!p) return HTOP_OK;
    ProcessLocksScreen* pls = ProcessLocksScreen_new(p);
    InfoScreen_run((InfoScreen*)pls);
@@ -392,7 +396,7 @@ static Htop_Reaction actionShowLocks(State* st) {
 }
 
 static Htop_Reaction actionStrace(State* st) {
-   const Process* p = (Process*) Panel_getSelected(st->panel);
+   const Process* p = (Process*) Panel_getSelected((Panel*)st->mainPanel);
    if (!p)
       return HTOP_OK;
 
@@ -408,12 +412,12 @@ static Htop_Reaction actionStrace(State* st) {
 }
 
 static Htop_Reaction actionTag(State* st) {
-   Process* p = (Process*) Panel_getSelected(st->panel);
+   Process* p = (Process*) Panel_getSelected((Panel*)st->mainPanel);
    if (!p)
       return HTOP_OK;
 
    Process_toggleTag(p);
-   Panel_onKey(st->panel, KEY_DOWN);
+   Panel_onKey((Panel*)st->mainPanel, KEY_DOWN);
    return HTOP_OK;
 }
 
@@ -443,7 +447,7 @@ static const struct {
    { .key = "      H: ", .info = "hide/show user process threads" },
    { .key = "      K: ", .info = "hide/show kernel threads" },
    { .key = "      F: ", .info = "cursor follows process" },
-   { .key = "    + -: ", .info = "expand/collapse tree" },
+   { .key = "  + - *: ", .info = "expand/collapse tree (* = toggle all)" },
    { .key = "N P M T: ", .info = "sort by PID, CPU%, MEM% or TIME" },
    { .key = "      I: ", .info = "invert sort order" },
    { .key = " F6 > .: ", .info = "select sort column" },
@@ -582,24 +586,24 @@ static Htop_Reaction actionHelp(State* st) {
 }
 
 static Htop_Reaction actionUntagAll(State* st) {
-   for (int i = 0; i < Panel_size(st->panel); i++) {
-      Process* p = (Process*) Panel_get(st->panel, i);
+   for (int i = 0; i < Panel_size((Panel*)st->mainPanel); i++) {
+      Process* p = (Process*) Panel_get((Panel*)st->mainPanel, i);
       p->tag = false;
    }
    return HTOP_REFRESH;
 }
 
 static Htop_Reaction actionTagAllChildren(State* st) {
-   Process* p = (Process*) Panel_getSelected(st->panel);
+   Process* p = (Process*) Panel_getSelected((Panel*)st->mainPanel);
    if (!p)
       return HTOP_OK;
 
-   tagAllChildren(st->panel, p);
+   tagAllChildren((Panel*)st->mainPanel, p);
    return HTOP_OK;
 }
 
 static Htop_Reaction actionShowEnvScreen(State* st) {
-   Process* p = (Process*) Panel_getSelected(st->panel);
+   Process* p = (Process*) Panel_getSelected((Panel*)st->mainPanel);
    if (!p)
       return HTOP_OK;
 
@@ -612,7 +616,7 @@ static Htop_Reaction actionShowEnvScreen(State* st) {
 }
 
 static Htop_Reaction actionShowCommandScreen(State* st) {
-   Process* p = (Process*) Panel_getSelected(st->panel);
+   Process* p = (Process*) Panel_getSelected((Panel*)st->mainPanel);
    if (!p)
       return HTOP_OK;
 
@@ -626,6 +630,7 @@ static Htop_Reaction actionShowCommandScreen(State* st) {
 
 void Action_setBindings(Htop_Action* keys) {
    keys[' '] = actionTag;
+   keys['*'] = actionExpandOrCollapseAllBranches;
    keys['+'] = actionExpandOrCollapse;
    keys[','] = actionSetSortColumn;
    keys['-'] = actionExpandOrCollapse;

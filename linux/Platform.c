@@ -130,9 +130,7 @@ void Platform_done(void) {
 }
 
 static Htop_Reaction Platform_actionSetIOPriority(State* st) {
-   Panel* panel = st->panel;
-
-   const LinuxProcess* p = (const LinuxProcess*) Panel_getSelected(panel);
+   const LinuxProcess* p = (const LinuxProcess*) Panel_getSelected((Panel*)st->mainPanel);
    if (!p)
       return HTOP_OK;
 
@@ -141,7 +139,7 @@ static Htop_Reaction Platform_actionSetIOPriority(State* st) {
    const void* set = Action_pickFromVector(st, ioprioPanel, 21, true);
    if (set) {
       IOPriority ioprio2 = IOPriorityPanel_getIOPriority(ioprioPanel);
-      bool ok = MainPanel_foreachProcess((MainPanel*)panel, LinuxProcess_setIOPriority, (Arg) { .i = ioprio2 }, NULL);
+      bool ok = MainPanel_foreachProcess(st->mainPanel, LinuxProcess_setIOPriority, (Arg) { .i = ioprio2 }, NULL);
       if (!ok) {
          beep();
       }
@@ -285,14 +283,11 @@ void Platform_setMemoryValues(Meter* this) {
    const ProcessList* pl = this->pl;
    const LinuxProcessList* lpl = (const LinuxProcessList*) pl;
 
-   long int usedMem = pl->usedMem;
-   long int buffersMem = pl->buffersMem;
-   long int cachedMem = pl->cachedMem;
-   usedMem -= buffersMem + cachedMem + lpl->totalHugePageMem;
-   this->total = pl->totalMem - lpl->totalHugePageMem;
-   this->values[0] = usedMem;
-   this->values[1] = buffersMem;
-   this->values[2] = cachedMem;
+   this->total     = pl->totalMem > lpl->totalHugePageMem ? pl->totalMem - lpl->totalHugePageMem : pl->totalMem;
+   this->values[0] = pl->usedMem > lpl->totalHugePageMem ? pl->usedMem - lpl->totalHugePageMem : pl->usedMem;
+   this->values[1] = pl->buffersMem;
+   this->values[2] = pl->cachedMem;
+   this->values[3] = pl->availableMem;
 
    if (lpl->zfs.enabled != 0) {
       this->values[0] -= lpl->zfs.size;
