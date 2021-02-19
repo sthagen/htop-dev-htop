@@ -316,16 +316,6 @@ case "$enable_hwloc" in
       ;;
 esac
 
-
-AC_ARG_ENABLE([setuid],
-              [AS_HELP_STRING([--enable-setuid],
-                              [enable setuid support for privilege dropping @<:@default=no@:>@])],
-              [],
-              [enable_setuid=no])
-if test "x$enable_setuid" = xyes; then
-   AC_DEFINE([HAVE_SETUID_ENABLED], [1], [Define if setuid support should be enabled.])
-fi
-
 # ----------------------------------------------------------------------
 
 
@@ -567,11 +557,13 @@ fi
 
 AC_ARG_ENABLE([debug],
               [AS_HELP_STRING([--enable-debug],
-                              [Enable asserts and internal sanity checks @<:@default=no@:>@])],
+                              [Enable compiling with maximum debug info, asserts and internal sanity checks @<:@default=no@:>@])],
               [],
               [enable_debug=no])
 if test "x$enable_debug" != xyes; then
    AM_CPPFLAGS="$AM_CPPFLAGS -DNDEBUG"
+else
+   AM_CPPFLAGS="$AM_CPPFLAGS -ggdb3"
 fi
 
 
@@ -626,7 +618,6 @@ AC_MSG_RESULT([
   (Linux) capabilities:      $enable_capabilities
   unicode:                   $enable_unicode
   hwloc:                     $enable_hwloc
-  setuid:                    $enable_setuid
   debug:                     $enable_debug
   static:                    $enable_static
 ])
