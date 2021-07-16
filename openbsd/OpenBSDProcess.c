@@ -6,7 +6,7 @@ Released under the GNU GPLv2, see the COPYING file
 in the source distribution for its full text.
 */
 
-#include "OpenBSDProcess.h"
+#include "openbsd/OpenBSDProcess.h"
 
 #include <stdlib.h>
 
@@ -63,9 +63,9 @@ const ProcessFieldData Process_fields[LAST_PROCESSFIELD] = {
       .flags = 0,
       .pidColumn = true,
    },
-   [TTY_NR] = {
-      .name = "TTY_NR",
-      .title = "    TTY ",
+   [TTY] = {
+      .name = "TTY",
+      .title = "TTY      ",
       .description = "Controlling terminal",
       .flags = 0,
    },
@@ -106,6 +106,12 @@ const ProcessFieldData Process_fields[LAST_PROCESSFIELD] = {
       .name = "STARTTIME",
       .title = "START ",
       .description = "Time the process was started",
+      .flags = 0,
+   },
+   [ELAPSED] = {
+      .name = "ELAPSED",
+      .title = "ELAPSED  ",
+      .description = "Time since the process was started",
       .flags = 0,
    },
    [PROCESSOR] = {
@@ -181,6 +187,19 @@ const ProcessFieldData Process_fields[LAST_PROCESSFIELD] = {
       .flags = 0,
       .pidColumn = true,
    },
+   [PROC_COMM] = {
+      .name = "COMM",
+      .title = "COMM            ",
+      .description = "comm string of the process",
+      .flags = 0,
+   },
+   [CWD] = {
+      .name = "CWD",
+      .title = "CWD                       ",
+      .description = "The current working directory of the process",
+      .flags = PROCESS_FLAG_CWD,
+   },
+
 };
 
 Process* OpenBSDProcess_new(const Settings* settings) {
@@ -234,7 +253,3 @@ const ProcessClass OpenBSDProcess_class = {
    .writeField = OpenBSDProcess_writeField,
    .compareByKey = OpenBSDProcess_compareByKey
 };
-
-bool Process_isThread(const Process* this) {
-   return Process_isKernelThread(this) || Process_isUserlandThread(this);
-}

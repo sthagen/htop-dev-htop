@@ -72,6 +72,7 @@ static HandlerResult DisplayOptionsPanel_eventHandler(Panel* super, int ch) {
       Header* header = this->scr->header;
       Header_calculateHeight(header);
       Header_reinit(header);
+      Header_updateData(header);
       Header_draw(header);
       ScreenManager_resize(this->scr, this->scr->x1, header->height, this->scr->x2, this->scr->y2);
    }
@@ -106,6 +107,7 @@ DisplayOptionsPanel* DisplayOptionsPanel_new(Settings* settings, ScreenManager* 
    Panel_add(super, (Object*) CheckItem_newByRef("Show custom thread names", &(settings->showThreadNames)));
    Panel_add(super, (Object*) CheckItem_newByRef("Show program path", &(settings->showProgramPath)));
    Panel_add(super, (Object*) CheckItem_newByRef("Highlight program \"basename\"", &(settings->highlightBaseName)));
+   Panel_add(super, (Object*) CheckItem_newByRef("Highlight out-dated/removed programs", &(settings->highlightDeletedExe)));
    Panel_add(super, (Object*) CheckItem_newByRef("Merge exe, comm and cmdline in Command", &(settings->showMergedCommand)));
    Panel_add(super, (Object*) CheckItem_newByRef("- Try to find comm in cmdline (when Command is merged)", &(settings->findCommInCmdline)));
    Panel_add(super, (Object*) CheckItem_newByRef("- Try to strip exe from cmdline (when Command is merged)", &(settings->stripExeFromCmdline)));
@@ -117,14 +119,24 @@ DisplayOptionsPanel* DisplayOptionsPanel_new(Settings* settings, ScreenManager* 
    Panel_add(super, (Object*) CheckItem_newByRef("Add guest time in CPU meter percentage", &(settings->accountGuestInCPUMeter)));
    Panel_add(super, (Object*) CheckItem_newByRef("Also show CPU percentage numerically", &(settings->showCPUUsage)));
    Panel_add(super, (Object*) CheckItem_newByRef("Also show CPU frequency", &(settings->showCPUFrequency)));
-   #ifdef HAVE_SENSORS_SENSORS_H
-   Panel_add(super, (Object*) CheckItem_newByRef("Also show CPU temperature (requires libsensors)", &(settings->showCPUTemperature)));
+   #ifdef BUILD_WITH_CPU_TEMP
+   Panel_add(super, (Object*) CheckItem_newByRef(
+   #if defined(HTOP_LINUX)
+                                                 "Also show CPU temperature (requires libsensors)",
+   #elif defined(HTOP_FREEBSD)
+                                                 "Also show CPU temperature",
+   #else
+   #error Unknown temperature implementation!
+   #endif
+                                                 &(settings->showCPUTemperature)));
    Panel_add(super, (Object*) CheckItem_newByRef("- Show temperature in degree Fahrenheit instead of Celsius", &(settings->degreeFahrenheit)));
    #endif
+   #ifdef HAVE_GETMOUSE
    Panel_add(super, (Object*) CheckItem_newByRef("Enable the mouse", &(settings->enableMouse)));
+   #endif
    Panel_add(super, (Object*) NumberItem_newByRef("Update interval (in seconds)", &(settings->delay), -1, 1, 255));
    Panel_add(super, (Object*) CheckItem_newByRef("Highlight new and old processes", &(settings->highlightChanges)));
-   Panel_add(super, (Object*) NumberItem_newByRef("- Highlight time (in seconds)", &(settings->highlightDelaySecs), 0, 1, 24*60*60));
+   Panel_add(super, (Object*) NumberItem_newByRef("- Highlight time (in seconds)", &(settings->highlightDelaySecs), 0, 1, 24 * 60 * 60));
    Panel_add(super, (Object*) NumberItem_newByRef("Hide main function bar (0 - off, 1 - on ESC until next input, 2 - permanently)", &(settings->hideFunctionBar), 0, 0, 2));
    #ifdef HAVE_LIBHWLOC
    Panel_add(super, (Object*) CheckItem_newByRef("Show topology when selecting affinity by default", &(settings->topologyAffinity)));

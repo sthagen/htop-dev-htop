@@ -7,6 +7,7 @@ in the source distribution for its full text.
 
 #include "Settings.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -53,7 +54,7 @@ static void Settings_readMeterModes(Settings* this, const char* line, int column
    this->columns[column].modes = modes;
 }
 
-static void Settings_defaultMeters(Settings* this, int initialCpuCount) {
+static void Settings_defaultMeters(Settings* this, unsigned int initialCpuCount) {
    int sizes[] = { 3, 3 };
    if (initialCpuCount > 4 && initialCpuCount <= 128) {
       sizes[1]++;
@@ -124,7 +125,7 @@ static void readFields(ProcessField* fields, uint32_t* flags, const char* line) 
    String_freeArray(ids);
 }
 
-static bool Settings_read(Settings* this, const char* fileName, int initialCpuCount) {
+static bool Settings_read(Settings* this, const char* fileName, unsigned int initialCpuCount) {
    FILE* fd = fopen(fileName, "r");
    if (!fd)
       return false;
@@ -174,6 +175,8 @@ static bool Settings_read(Settings* this, const char* fileName, int initialCpuCo
          this->showProgramPath = atoi(option[1]);
       } else if (String_eq(option[0], "highlight_base_name")) {
          this->highlightBaseName = atoi(option[1]);
+      } else if (String_eq(option[0], "highlight_deleted_exe")) {
+         this->highlightDeletedExe = atoi(option[1]);
       } else if (String_eq(option[0], "highlight_megabytes")) {
          this->highlightMegabytes = atoi(option[1]);
       } else if (String_eq(option[0], "highlight_threads")) {
@@ -181,7 +184,7 @@ static bool Settings_read(Settings* this, const char* fileName, int initialCpuCo
       } else if (String_eq(option[0], "highlight_changes")) {
          this->highlightChanges = atoi(option[1]);
       } else if (String_eq(option[0], "highlight_changes_delay_secs")) {
-         this->highlightDelaySecs = CLAMP(atoi(option[1]), 1, 24*60*60);
+         this->highlightDelaySecs = CLAMP(atoi(option[1]), 1, 24 * 60 * 60);
       } else if (String_eq(option[0], "find_comm_in_cmdline")) {
          this->findCommInCmdline = atoi(option[1]);
       } else if (String_eq(option[0], "strip_exe_from_cmdline")) {
@@ -204,7 +207,7 @@ static bool Settings_read(Settings* this, const char* fileName, int initialCpuCo
          this->showCPUUsage = atoi(option[1]);
       } else if (String_eq(option[0], "show_cpu_frequency")) {
          this->showCPUFrequency = atoi(option[1]);
-      #ifdef HAVE_SENSORS_SENSORS_H
+      #ifdef BUILD_WITH_CPU_TEMP
       } else if (String_eq(option[0], "show_cpu_temperature")) {
          this->showCPUTemperature = atoi(option[1]);
       } else if (String_eq(option[0], "degree_fahrenheit")) {
@@ -221,8 +224,10 @@ static bool Settings_read(Settings* this, const char* fileName, int initialCpuCo
          if (this->colorScheme < 0 || this->colorScheme >= LAST_COLORSCHEME) {
             this->colorScheme = 0;
          }
+      #ifdef HAVE_GETMOUSE
       } else if (String_eq(option[0], "enable_mouse")) {
          this->enableMouse = atoi(option[1]);
+      #endif
       } else if (String_eq(option[0], "left_meters")) {
          Settings_readMeters(this, option[1], 0);
          didReadMeters = true;
@@ -262,7 +267,7 @@ static void writeFields(FILE* fd, const ProcessField* fields, const char* name) 
    fprintf(fd, "\n");
 }
 
-static void writeMeters(Settings* this, FILE* fd, int column) {
+static void writeMeters(const Settings* this, FILE* fd, int column) {
    const char* sep = "";
    for (int i = 0; i < this->columns[column].len; i++) {
       fprintf(fd, "%s%s", sep, this->columns[column].names[i]);
@@ -271,7 +276,7 @@ static void writeMeters(Settings* this, FILE* fd, int column) {
    fprintf(fd, "\n");
 }
 
-static void writeMeterModes(Settings* this, FILE* fd, int column) {
+static void writeMeterModes(const Settings* this, FILE* fd, int column) {
    const char* sep = "";
    for (int i = 0; i < this->columns[column].len; i++) {
       fprintf(fd, "%s%d", sep, this->columns[column].modes[i]);
@@ -280,13 +285,20 @@ static void writeMeterModes(Settings* this, FILE* fd, int column) {
    fprintf(fd, "\n");
 }
 
-bool Settings_write(Settings* this) {
-   FILE* fd = fopen(this->filename, "w");
-   if (fd == NULL)
-      return false;
+int Settings_write(const Settings* this, bool onCrash) {
+   FILE* fd;
+   if (onCrash) {
+      fd = stderr;
+   } else {
+      fd = fopen(this->filename, "w");
+      if (fd == NULL)
+         return -errno;
+   }
 
-   fprintf(fd, "# Beware! This file is rewritten by htop when settings are changed in the interface.\n");
-   fprintf(fd, "# The parser is also very primitive, and not human-friendly.\n");
+   if (!onCrash) {
+      fprintf(fd, "# Beware! This file is rewritten by htop when settings are changed in the interface.\n");
+      fprintf(fd, "# The parser is also very primitive, and not human-friendly.\n");
+   }
    writeFields(fd, this->fields, "fields");
    // This "-1" is for compatibility with the older enum format.
    fprintf(fd, "sort_key=%d\n", (int) this->sortKey - 1);
@@ -299,6 +311,7 @@ bool Settings_write(Settings* this) {
    fprintf(fd, "show_thread_names=%d\n", (int) this->showThreadNames);
    fprintf(fd, "show_program_path=%d\n", (int) this->showProgramPath);
    fprintf(fd, "highlight_base_name=%d\n", (int) this->highlightBaseName);
+   fprintf(fd, "highlight_deleted_exe=%d\n", (int) this->highlightDeletedExe);
    fprintf(fd, "highlight_megabytes=%d\n", (int) this->highlightMegabytes);
    fprintf(fd, "highlight_threads=%d\n", (int) this->highlightThreads);
    fprintf(fd, "highlight_changes=%d\n", (int) this->highlightChanges);
@@ -314,14 +327,16 @@ bool Settings_write(Settings* this) {
    fprintf(fd, "cpu_count_from_one=%d\n", (int) this->countCPUsFromOne);
    fprintf(fd, "show_cpu_usage=%d\n", (int) this->showCPUUsage);
    fprintf(fd, "show_cpu_frequency=%d\n", (int) this->showCPUFrequency);
-   #ifdef HAVE_SENSORS_SENSORS_H
+   #ifdef BUILD_WITH_CPU_TEMP
    fprintf(fd, "show_cpu_temperature=%d\n", (int) this->showCPUTemperature);
    fprintf(fd, "degree_fahrenheit=%d\n", (int) this->degreeFahrenheit);
    #endif
    fprintf(fd, "update_process_names=%d\n", (int) this->updateProcessNames);
    fprintf(fd, "account_guest_in_cpu_meter=%d\n", (int) this->accountGuestInCPUMeter);
    fprintf(fd, "color_scheme=%d\n", (int) this->colorScheme);
+   #ifdef HAVE_GETMOUSE
    fprintf(fd, "enable_mouse=%d\n", (int) this->enableMouse);
+   #endif
    fprintf(fd, "delay=%d\n", (int) this->delay);
    fprintf(fd, "left_meters="); writeMeters(this, fd, 0);
    fprintf(fd, "left_meter_modes="); writeMeterModes(this, fd, 0);
@@ -331,11 +346,22 @@ bool Settings_write(Settings* this) {
    #ifdef HAVE_LIBHWLOC
    fprintf(fd, "topology_affinity=%d\n", (int) this->topologyAffinity);
    #endif
-   fclose(fd);
-   return true;
+
+   if (onCrash)
+      return 0;
+
+   int r = 0;
+
+   if (ferror(fd) != 0)
+      r = (errno != 0) ? -errno : -EBADF;
+
+   if (fclose(fd) != 0)
+      r = r ? r : -errno;
+
+   return r;
 }
 
-Settings* Settings_new(int initialCpuCount) {
+Settings* Settings_new(unsigned int initialCpuCount) {
    Settings* this = xCalloc(1, sizeof(Settings));
 
    this->sortKey = PERCENT_CPU;
@@ -349,12 +375,13 @@ Settings* Settings_new(int initialCpuCount) {
    this->treeView = false;
    this->allBranchesCollapsed = false;
    this->highlightBaseName = false;
+   this->highlightDeletedExe = true;
    this->highlightMegabytes = false;
    this->detailedCPUTime = false;
    this->countCPUsFromOne = false;
    this->showCPUUsage = true;
    this->showCPUFrequency = false;
-   #ifdef HAVE_SENSORS_SENSORS_H
+   #ifdef BUILD_WITH_CPU_TEMP
    this->showCPUTemperature = false;
    this->degreeFahrenheit = false;
    #endif
@@ -414,7 +441,9 @@ Settings* Settings_new(int initialCpuCount) {
       }
    }
    this->colorScheme = 0;
+#ifdef HAVE_GETMOUSE
    this->enableMouse = true;
+#endif
    this->changed = false;
    this->delay = DEFAULT_DELAY;
    bool ok = false;
@@ -422,7 +451,7 @@ Settings* Settings_new(int initialCpuCount) {
       ok = Settings_read(this, legacyDotfile, initialCpuCount);
       if (ok) {
          // Transition to new location and delete old configuration file
-         if (Settings_write(this)) {
+         if (Settings_write(this, false) == 0) {
             unlink(legacyDotfile);
          }
       }
@@ -462,4 +491,14 @@ void Settings_setSortKey(Settings* this, ProcessField sortKey) {
       this->treeSortKey = sortKey;
       this->treeDirection = (Process_fields[sortKey].defaultSortDesc) ? -1 : 1;
    }
+}
+
+static bool readonly = false;
+
+void Settings_enableReadonly(void) {
+   readonly = true;
+}
+
+bool Settings_isReadonly(void) {
+   return readonly;
 }

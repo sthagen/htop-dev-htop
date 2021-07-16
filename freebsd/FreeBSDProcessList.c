@@ -7,11 +7,11 @@ in the source distribution for its full text.
 
 #include "config.h" // IWYU pragma: keep
 
-#include "FreeBSDProcessList.h"
+#include "freebsd/FreeBSDProcessList.h"
 
 #include <assert.h>
-#include <dirent.h>
 #include <limits.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/_iovec.h>
@@ -21,7 +21,6 @@ in the source distribution for its full text.
 #include <sys/priority.h>
 #include <sys/proc.h>
 #include <sys/resource.h>
-#include <sys/stat.h>
 #include <sys/sysctl.h>
 #include <sys/time.h>
 #include <sys/types.h>
@@ -36,8 +35,8 @@ in the source distribution for its full text.
 #include "ProcessList.h"
 #include "Settings.h"
 #include "XUtils.h"
+#include "generic/openzfs_sysctl.h"
 #include "zfs/ZfsArcStats.h"
-#include "zfs/openzfs_sysctl.h"
 
 
 static int MIB_hw_physmem[2];
@@ -57,12 +56,12 @@ static int MIB_kern_cp_time[2];
 static int MIB_kern_cp_times[2];
 static int kernelFScale;
 
-ProcessList* ProcessList_new(UsersTable* usersTable, Hashtable* pidMatchList, uid_t userId) {
+ProcessList* ProcessList_new(UsersTable* usersTable, Hashtable* dynamicMeters, Hashtable* pidMatchList, uid_t userId) {
    size_t len;
    char errbuf[_POSIX2_LINE_MAX];
    FreeBSDProcessList* fpl = xCalloc(1, sizeof(FreeBSDProcessList));
    ProcessList* pl = (ProcessList*) fpl;
-   ProcessList_init(pl, Class(FreeBSDProcess), usersTable, pidMatchList, userId);
+   ProcessList_init(pl, Class(FreeBSDProcess), usersTable, dynamicMeters, pidMatchList, userId);
 
    // physical memory in system: hw.physmem
    // physical page size: hw.pagesize
@@ -147,15 +146,11 @@ ProcessList* ProcessList_new(UsersTable* usersTable, Hashtable* pidMatchList, ui
       CRT_fatalError("kvm_openfiles() failed");
    }
 
-   fpl->ttys = Hashtable_new(20, true);
-
    return pl;
 }
 
 void ProcessList_delete(ProcessList* this) {
    const FreeBSDProcessList* fpl = (FreeBSDProcessList*) this;
-
-   Hashtable_delete(fpl->ttys);
 
    if (fpl->kd) {
       kvm_close(fpl->kd);
@@ -171,11 +166,11 @@ void ProcessList_delete(ProcessList* this) {
    free(this);
 }
 
-static inline void FreeBSDProcessList_scanCPUTime(ProcessList* pl) {
+static inline void FreeBSDProcessList_scanCPU(ProcessList* pl) {
    const FreeBSDProcessList* fpl = (FreeBSDProcessList*) pl;
 
-   int cpus   = pl->cpuCount;   // actual CPU count
-   int maxcpu = cpus;           // max iteration (in case we have average + smp)
+   unsigned int cpus   = pl->cpuCount;   // actual CPU count
+   unsigned int maxcpu = cpus;           // max iteration (in case we have average + smp)
    int cp_times_offset;
 
    assert(cpus > 0);
@@ -202,7 +197,7 @@ static inline void FreeBSDProcessList_scanCPUTime(ProcessList* pl) {
       sysctl(MIB_kern_cp_times, 2, fpl->cp_times_n, &sizeof_cp_time_array, NULL, 0);
    }
 
-   for (int i = 0; i < maxcpu; i++) {
+   for (unsigned int i = 0; i < maxcpu; i++) {
       if (cpus == 1) {
          // single CPU box
          cp_time_n = fpl->cp_time_n;
@@ -250,6 +245,67 @@ static inline void FreeBSDProcessList_scanCPUTime(ProcessList* pl) {
       cpuData->systemAllPercent = cp_time_p[CP_SYS] + cp_time_p[CP_INTR];
       // this one is not really used
       //cpuData->idlePercent      = cp_time_p[CP_IDLE];
+
+      cpuData->temperature = NAN;
+      cpuData->frequency = NAN;
+
+      const int coreId = (cpus == 1) ? 0 : ((int)i - 1);
+      if (coreId < 0)
+         continue;
+
+      // TODO: test with hyperthreading and multi-cpu systems
+      if (pl->settings->showCPUTemperature) {
+         int temperature;
+         size_t len = sizeof(temperature);
+         char mibBuffer[32];
+         xSnprintf(mibBuffer, sizeof(mibBuffer), "dev.cpu.%d.temperature", coreId);
+         int r = sysctlbyname(mibBuffer, &temperature, &len, NULL, 0);
+         if (r == 0)
+            cpuData->temperature = (double)(temperature - 2732) / 10.0; // convert from deci-Kelvin to Celsius
+      }
+
+      // TODO: test with hyperthreading and multi-cpu systems
+      if (pl->settings->showCPUFrequency) {
+         int frequency;
+         size_t len = sizeof(frequency);
+         char mibBuffer[32];
+         xSnprintf(mibBuffer, sizeof(mibBuffer), "dev.cpu.%d.freq", coreId);
+         int r = sysctlbyname(mibBuffer, &frequency, &len, NULL, 0);
+         if (r == 0)
+            cpuData->frequency = frequency; // keep in MHz
+      }
+   }
+
+   // calculate max temperature and avg frequency for average meter and
+   // propagate frequency to all cores if only supplied for CPU 0
+   if (cpus > 1) {
+      if (pl->settings->showCPUTemperature) {
+         double maxTemp = NAN;
+         for (unsigned int i = 1; i < maxcpu; i++) {
+            const double coreTemp = fpl->cpus[i].temperature;
+            if (isnan(coreTemp))
+               continue;
+
+            maxTemp = MAXIMUM(maxTemp, coreTemp);
+         }
+
+         fpl->cpus[0].temperature = maxTemp;
+      }
+
+      if (pl->settings->showCPUFrequency) {
+         const double coreZeroFreq = fpl->cpus[1].frequency;
+         double freqSum = coreZeroFreq;
+         if (!isnan(coreZeroFreq)) {
+            for (unsigned int i = 2; i < maxcpu; i++) {
+               if (isnan(fpl->cpus[i].frequency))
+                  fpl->cpus[i].frequency = coreZeroFreq;
+
+               freqSum += fpl->cpus[i].frequency;
+            }
+
+            fpl->cpus[0].frequency = freqSum / (maxcpu - 1);
+         }
+      }
    }
 }
 
@@ -321,93 +377,72 @@ static inline void FreeBSDProcessList_scanMemoryInfo(ProcessList* pl) {
    pl->usedSwap *= pageSizeKb;
 }
 
-static void FreeBSDProcessList_scanTTYs(ProcessList* pl) {
-   FreeBSDProcessList* fpl = (FreeBSDProcessList*) pl;
-
-   // scan /dev/tty*
-   {
-      DIR* dirPtr = opendir("/dev");
-      if (!dirPtr)
-         return;
-
-      int dirFd = dirfd(dirPtr);
-      if (dirFd < 0)
-         goto err1;
-
-      const struct dirent* entry;
-      while ((entry = readdir(dirPtr))) {
-         if (!String_startsWith(entry->d_name, "tty"))
-            continue;
-
-         struct stat info;
-         if (Compat_fstatat(dirFd, "/dev", entry->d_name, &info, 0) < 0)
-            continue;
-
-         if (!S_ISCHR(info.st_mode))
-            continue;
-
-         if (!Hashtable_get(fpl->ttys, info.st_rdev))
-            Hashtable_put(fpl->ttys, info.st_rdev, xStrdup(entry->d_name));
-      }
-
-err1:
-      closedir(dirPtr);
+static void FreeBSDProcessList_updateExe(const struct kinfo_proc* kproc, Process* proc) {
+   const int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, kproc->ki_pid };
+   char buffer[2048];
+   size_t size = sizeof(buffer);
+   if (sysctl(mib, 4, buffer, &size, NULL, 0) != 0) {
+      Process_updateExe(proc, NULL);
+      return;
    }
 
-   // scan /dev/pts/*
-   {
-      DIR* dirPtr = opendir("/dev/pts");
-      if (!dirPtr)
-         return;
-
-      int dirFd = dirfd(dirPtr);
-      if (dirFd < 0)
-         goto err2;
-
-      const struct dirent* entry;
-      while ((entry = readdir(dirPtr))) {
-         struct stat info;
-         if (Compat_fstatat(dirFd, "/dev/pts", entry->d_name, &info, 0) < 0)
-            continue;
-
-         if (!S_ISCHR(info.st_mode))
-            continue;
-
-         if (!Hashtable_get(fpl->ttys, info.st_rdev)) {
-            char* path;
-            xAsprintf(&path, "pts/%s", entry->d_name);
-            Hashtable_put(fpl->ttys, info.st_rdev, path);
-         }
-      }
-
-err2:
-      closedir(dirPtr);
+   /* Kernel threads return an empty buffer */
+   if (buffer[0] == '\0') {
+      Process_updateExe(proc, NULL);
+      return;
    }
+
+   Process_updateExe(proc, buffer);
 }
 
-static char* FreeBSDProcessList_readProcessName(kvm_t* kd, const struct kinfo_proc* kproc, int* basenameEnd) {
-   char** argv = kvm_getargv(kd, kproc, 0);
-   if (!argv) {
-      return xStrdup(kproc->ki_comm);
+static void FreeBSDProcessList_updateCwd(const struct kinfo_proc* kproc, Process* proc) {
+   const int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_CWD, kproc->ki_pid };
+   char buffer[2048];
+   size_t size = sizeof(buffer);
+   if (sysctl(mib, 4, buffer, &size, NULL, 0) != 0) {
+      free(proc->procCwd);
+      proc->procCwd = NULL;
+      return;
    }
-   int len = 0;
+
+   /* Kernel threads return an empty buffer */
+   if (buffer[0] == '\0') {
+      free(proc->procCwd);
+      proc->procCwd = NULL;
+      return;
+   }
+
+   free_and_xStrdup(&proc->procCwd, buffer);
+}
+
+static void FreeBSDProcessList_updateProcessName(kvm_t* kd, const struct kinfo_proc* kproc, Process* proc) {
+   Process_updateComm(proc, kproc->ki_comm);
+
+   char** argv = kvm_getargv(kd, kproc, 0);
+   if (!argv || !argv[0]) {
+      Process_updateCmdline(proc, kproc->ki_comm, 0, strlen(kproc->ki_comm));
+      return;
+   }
+
+   size_t len = 0;
    for (int i = 0; argv[i]; i++) {
       len += strlen(argv[i]) + 1;
    }
-   char* comm = xMalloc(len);
-   char* at = comm;
-   *basenameEnd = 0;
+
+   char* cmdline = xMalloc(len);
+   char* at = cmdline;
+   int end = 0;
    for (int i = 0; argv[i]; i++) {
       at = stpcpy(at, argv[i]);
-      if (!*basenameEnd) {
-         *basenameEnd = at - comm;
+      if (end == 0) {
+         end = at - cmdline;
       }
-      *at = ' ';
-      at++;
+      *at++ = ' ';
    }
    at--;
    *at = '\0';
-   return comm;
+
+   Process_updateCmdline(proc, cmdline, 0, end);
 }
 
 static char* FreeBSDProcessList_readJailName(const struct kinfo_proc* kproc) {
@@ -443,15 +478,11 @@ void ProcessList_goThroughEntries(ProcessList* super, bool pauseProcessUpdate) {
 
    openzfs_sysctl_updateArcStats(&fpl->zfs);
    FreeBSDProcessList_scanMemoryInfo(super);
-   FreeBSDProcessList_scanCPUTime(super);
+   FreeBSDProcessList_scanCPU(super);
 
    // in pause mode only gather global data for meters (CPU/memory/...)
    if (pauseProcessUpdate) {
       return;
-   }
-
-   if (settings->flags & PROCESS_FLAG_FREEBSD_TTY) {
-      FreeBSDProcessList_scanTTYs(super);
    }
 
    int count = 0;
@@ -468,7 +499,8 @@ void ProcessList_goThroughEntries(ProcessList* super, bool pauseProcessUpdate) {
       if (!preExisting) {
          fp->jid = kproc->ki_jid;
          proc->pid = kproc->ki_pid;
-         fp->isKernelThread = kproc->ki_pid != 0 && kproc->ki_pid != 1 && (kproc->ki_flag & P_SYSTEM);
+         proc->isKernelThread = kproc->ki_pid != 0 && kproc->ki_pid != 1 && (kproc->ki_flag & P_SYSTEM);
+         proc->isUserlandThread = false;
          proc->ppid = kproc->ki_ppid;
          proc->tpgid = kproc->ki_tpgid;
          proc->tgid = kproc->ki_pid;
@@ -479,8 +511,24 @@ void ProcessList_goThroughEntries(ProcessList* super, bool pauseProcessUpdate) {
          Process_fillStarttimeBuffer(proc);
          proc->user = UsersTable_getRef(super->usersTable, proc->st_uid);
          ProcessList_add(super, proc);
-         proc->comm = FreeBSDProcessList_readProcessName(fpl->kd, kproc, &proc->basenameOffset);
+
+         FreeBSDProcessList_updateExe(kproc, proc);
+         FreeBSDProcessList_updateProcessName(fpl->kd, kproc, proc);
+
+         if (settings->flags & PROCESS_FLAG_CWD) {
+            FreeBSDProcessList_updateCwd(kproc, proc);
+         }
+
          fp->jname = FreeBSDProcessList_readJailName(kproc);
+
+         proc->tty_nr = kproc->ki_tdev;
+         const char* name = (kproc->ki_tdev != NODEV) ? devname(kproc->ki_tdev, S_IFCHR) : NULL;
+         if (!name) {
+            free(proc->tty_name);
+            proc->tty_name = NULL;
+         } else {
+            free_and_xStrdup(&proc->tty_name, name);
+         }
       } else {
          if (fp->jid != kproc->ki_jid) {
             // process can enter jail anytime
@@ -496,8 +544,7 @@ void ProcessList_goThroughEntries(ProcessList* super, bool pauseProcessUpdate) {
             proc->user = UsersTable_getRef(super->usersTable, proc->st_uid);
          }
          if (settings->updateProcessNames) {
-            free(proc->comm);
-            proc->comm = FreeBSDProcessList_readProcessName(fpl->kd, kproc, &proc->basenameOffset);
+            FreeBSDProcessList_updateProcessName(fpl->kd, kproc, proc);
          }
       }
 
@@ -510,7 +557,11 @@ void ProcessList_goThroughEntries(ProcessList* super, bool pauseProcessUpdate) {
       proc->percent_cpu = 100.0 * ((double)kproc->ki_pctcpu / (double)kernelFScale);
       proc->percent_mem = 100.0 * proc->m_resident / (double)(super->totalMem);
 
-      proc->processor = kproc->ki_lastcpu;
+      if (kproc->ki_stat == SRUN && kproc->ki_oncpu != NOCPU) {
+         proc->processor = kproc->ki_oncpu;
+      } else {
+         proc->processor = kproc->ki_lastcpu;
+      }
 
       proc->majflt = kproc->ki_cow;
 
@@ -535,10 +586,6 @@ void ProcessList_goThroughEntries(ProcessList* super, bool pauseProcessUpdate) {
       case SWAIT:  proc->state = 'D'; break;
       case SLOCK:  proc->state = 'L'; break;
       default:     proc->state = '?';
-      }
-
-      if (settings->flags & PROCESS_FLAG_FREEBSD_TTY) {
-         fp->ttyPath = (kproc->ki_tdev == NODEV) ? nodevStr : Hashtable_get(fpl->ttys, kproc->ki_tdev);
       }
 
       if (Process_isKernelThread(proc))

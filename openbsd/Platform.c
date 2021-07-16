@@ -6,7 +6,7 @@ Released under the GNU GPLv2, see the COPYING file
 in the source distribution for its full text.
 */
 
-#include "Platform.h"
+#include "openbsd/Platform.h"
 
 #include <errno.h>
 #include <kvm.h>
@@ -15,6 +15,8 @@ in the source distribution for its full text.
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <sys/signal.h>  // needs to be included before <sys/proc.h> for 'struct sigaltstack'
+#include <sys/proc.h>
 #include <sys/resource.h>
 #include <sys/sensors.h>
 #include <sys/sysctl.h>
@@ -31,8 +33,6 @@ in the source distribution for its full text.
 #include "Macros.h"
 #include "MemoryMeter.h"
 #include "Meter.h"
-#include "OpenBSDProcess.h"
-#include "OpenBSDProcessList.h"
 #include "ProcessList.h"
 #include "Settings.h"
 #include "SignalsPanel.h"
@@ -41,6 +41,8 @@ in the source distribution for its full text.
 #include "TasksMeter.h"
 #include "UptimeMeter.h"
 #include "XUtils.h"
+#include "openbsd/OpenBSDProcess.h"
+#include "openbsd/OpenBSDProcessList.h"
 
 
 const ProcessField Platform_defaultFields[] = { PID, USER, PRIORITY, NICE, M_VIRT, M_RESIDENT, STATE, PERCENT_CPU, PERCENT_MEM, TIME, COMM, 0 };
@@ -162,11 +164,10 @@ void Platform_getLoadAverage(double* one, double* five, double* fifteen) {
 }
 
 int Platform_getMaxPid() {
-   // this is hard-coded in sys/proc.h - no sysctl exists
-   return 99999;
+   return 2 * THREAD_PID_OFFSET;
 }
 
-double Platform_setCPUValues(Meter* this, int cpu) {
+double Platform_setCPUValues(Meter* this, unsigned int cpu) {
    const OpenBSDProcessList* pl = (const OpenBSDProcessList*) this->pl;
    const CPUData* cpuData = &(pl->cpus[cpu]);
    double total = cpuData->totalPeriod == 0 ? 1 : cpuData->totalPeriod;
@@ -196,6 +197,8 @@ double Platform_setCPUValues(Meter* this, int cpu) {
 
    v[CPU_METER_TEMPERATURE] = NAN;
 
+   v[CPU_METER_FREQUENCY] = (pl->cpuSpeed != -1) ? pl->cpuSpeed : NAN;
+
    return totalPercent;
 }
 
@@ -208,7 +211,9 @@ void Platform_setMemoryValues(Meter* this) {
    this->total = pl->totalMem;
    this->values[0] = usedMem;
    this->values[1] = buffersMem;
-   this->values[2] = cachedMem;
+   // this->values[2] = "shared memory, like tmpfs and shm"
+   this->values[3] = cachedMem;
+   // this->values[4] = "available memory"
 }
 
 void Platform_setSwapValues(Meter* this) {
@@ -267,14 +272,14 @@ char* Platform_getProcessEnv(pid_t pid) {
 }
 
 char* Platform_getInodeFilename(pid_t pid, ino_t inode) {
-    (void)pid;
-    (void)inode;
-    return NULL;
+   (void)pid;
+   (void)inode;
+   return NULL;
 }
 
 FileLocks_ProcessData* Platform_getProcessLocks(pid_t pid) {
-    (void)pid;
-    return NULL;
+   (void)pid;
+   return NULL;
 }
 
 bool Platform_getDiskIO(DiskIOData* data) {
@@ -283,15 +288,9 @@ bool Platform_getDiskIO(DiskIOData* data) {
    return false;
 }
 
-bool Platform_getNetworkIO(unsigned long int* bytesReceived,
-                           unsigned long int* packetsReceived,
-                           unsigned long int* bytesTransmitted,
-                           unsigned long int* packetsTransmitted) {
+bool Platform_getNetworkIO(NetworkIOData* data) {
    // TODO
-   *bytesReceived = 0;
-   *packetsReceived = 0;
-   *bytesTransmitted = 0;
-   *packetsTransmitted = 0;
+   (void)data;
    return false;
 }
 

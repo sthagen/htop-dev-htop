@@ -9,9 +9,21 @@ Released under the GNU GPLv2, see the COPYING file
 in the source distribution for its full text.
 */
 
+#include "config.h" // IWYU pragma: keep
+
+#include <kstat.h>
+
+/* On OmniOS /usr/include/sys/regset.h redefines ERR to 13 - \r, breaking the Enter key.
+ * Since ncruses macros use the ERR macro, we can not use another name.
+ */
+#undef ERR
 #include <libproc.h>
+#undef ERR
+#define ERR (-1)
+
 #include <signal.h>
 #include <stdbool.h>
+
 #include <sys/mkdev.h>
 #include <sys/proc.h>
 #include <sys/types.h>
@@ -19,8 +31,12 @@ in the source distribution for its full text.
 #include "Action.h"
 #include "BatteryMeter.h"
 #include "DiskIOMeter.h"
+#include "NetworkIOMeter.h"
 #include "ProcessLocksScreen.h"
 #include "SignalsPanel.h"
+#include "generic/gettime.h"
+#include "generic/hostname.h"
+#include "generic/uname.h"
 
 
 #define  kill(pid, signal) kill(pid / 1024, signal)
@@ -33,8 +49,6 @@ typedef struct envAccum_ {
    size_t bytes;
    char* env;
 } envAccum;
-
-extern double plat_loadavg[3];
 
 extern const SignalItem Platform_signals[];
 
@@ -56,7 +70,7 @@ void Platform_getLoadAverage(double* one, double* five, double* fifteen);
 
 int Platform_getMaxPid(void);
 
-double Platform_setCPUValues(Meter* this, int cpu);
+double Platform_setCPUValues(Meter* this, unsigned int cpu);
 
 void Platform_setMemoryValues(Meter* this);
 
@@ -74,11 +88,54 @@ FileLocks_ProcessData* Platform_getProcessLocks(pid_t pid);
 
 bool Platform_getDiskIO(DiskIOData* data);
 
-bool Platform_getNetworkIO(unsigned long int* bytesReceived,
-                           unsigned long int* packetsReceived,
-                           unsigned long int* bytesTransmitted,
-                           unsigned long int* packetsTransmitted);
+bool Platform_getNetworkIO(NetworkIOData* data);
 
 void Platform_getBattery(double* percent, ACPresence* isOnAC);
+
+static inline void Platform_getHostname(char* buffer, size_t size) {
+   Generic_hostname(buffer, size);
+}
+
+static inline void Platform_getRelease(char** string) {
+   *string = Generic_uname();
+}
+
+#define PLATFORM_LONG_OPTIONS
+
+static inline void Platform_longOptionsUsage(ATTR_UNUSED const char* name) { }
+
+static inline bool Platform_getLongOption(ATTR_UNUSED int opt, ATTR_UNUSED int argc, ATTR_UNUSED char** argv) {
+   return false;
+}
+
+static inline void Platform_gettime_realtime(struct timeval* tv, uint64_t* msec) {
+   Generic_gettime_realtime(tv, msec);
+}
+
+static inline void Platform_gettime_monotonic(uint64_t* msec) {
+   Generic_gettime_monotonic(msec);
+}
+
+static inline void* kstat_data_lookup_wrapper(kstat_t* ksp, const char* name) {
+IGNORE_WCASTQUAL_BEGIN
+   return kstat_data_lookup(ksp, (char*)name);
+IGNORE_WCASTQUAL_END
+}
+
+static inline kstat_t* kstat_lookup_wrapper(kstat_ctl_t* kc, const char* ks_module, int ks_instance, const char* ks_name) {
+IGNORE_WCASTQUAL_BEGIN
+   return kstat_lookup(kc, (char*)ks_module, ks_instance, (char*)ks_name);
+IGNORE_WCASTQUAL_END
+}
+
+static inline Hashtable* Platform_dynamicMeters(void) {
+   return NULL;
+}
+
+static inline void Platform_dynamicMeterInit(ATTR_UNUSED Meter* meter) { }
+
+static inline void Platform_dynamicMeterUpdateValues(ATTR_UNUSED Meter* meter) { }
+
+static inline void Platform_dynamicMeterDisplay(ATTR_UNUSED const Meter* meter, ATTR_UNUSED RichString* out) { }
 
 #endif

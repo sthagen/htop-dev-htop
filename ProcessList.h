@@ -10,6 +10,8 @@ in the source distribution for its full text.
 #include "config.h" // IWYU pragma: keep
 
 #include <stdbool.h>
+#include <stdint.h>
+#include <sys/time.h>
 #include <sys/types.h>
 
 #include "Hashtable.h"
@@ -48,6 +50,12 @@ typedef struct ProcessList_ {
    Hashtable* displayTreeSet;
    Hashtable* draftingTreeSet;
 
+   Hashtable* dynamicMeters;  /* runtime-discovered meters */
+
+   struct timeval realtime;   /* time of the current sample */
+   uint64_t realtimeMs;       /* current time in milliseconds */
+   uint64_t monotonicMs;      /* same, but from monotonic clock */
+
    Panel* panel;
    int following;
    uid_t userId;
@@ -59,32 +67,31 @@ typedef struct ProcessList_ {
    bool topologyOk;
    #endif
 
-   int totalTasks;
-   int runningTasks;
-   int userlandThreads;
-   int kernelThreads;
+   unsigned int totalTasks;
+   unsigned int runningTasks;
+   unsigned int userlandThreads;
+   unsigned int kernelThreads;
 
    memory_t totalMem;
    memory_t usedMem;
    memory_t buffersMem;
    memory_t cachedMem;
+   memory_t sharedMem;
    memory_t availableMem;
 
    memory_t totalSwap;
    memory_t usedSwap;
    memory_t cachedSwap;
 
-   int cpuCount;
-
-   time_t scanTs;
+   unsigned int cpuCount;
 } ProcessList;
 
-ProcessList* ProcessList_new(UsersTable* usersTable, Hashtable* pidMatchList, uid_t userId);
+ProcessList* ProcessList_new(UsersTable* usersTable, Hashtable* dynamicMeters, Hashtable* pidMatchList, uid_t userId);
 void ProcessList_delete(ProcessList* pl);
 void ProcessList_goThroughEntries(ProcessList* super, bool pauseProcessUpdate);
 
 
-ProcessList* ProcessList_init(ProcessList* this, const ObjectClass* klass, UsersTable* usersTable, Hashtable* pidMatchList, uid_t userId);
+ProcessList* ProcessList_init(ProcessList* this, const ObjectClass* klass, UsersTable* usersTable, Hashtable* dynamicMeters, Hashtable* pidMatchList, uid_t userId);
 
 void ProcessList_done(ProcessList* this);
 
@@ -95,10 +102,6 @@ void ProcessList_printHeader(const ProcessList* this, RichString* header);
 void ProcessList_add(ProcessList* this, Process* p);
 
 void ProcessList_remove(ProcessList* this, const Process* p);
-
-Process* ProcessList_get(ProcessList* this, int idx);
-
-int ProcessList_size(const ProcessList* this);
 
 void ProcessList_sort(ProcessList* this);
 
@@ -113,5 +116,9 @@ void ProcessList_rebuildPanel(ProcessList* this);
 Process* ProcessList_getProcess(ProcessList* this, pid_t pid, bool* preExisting, Process_New constructor);
 
 void ProcessList_scan(ProcessList* this, bool pauseProcessUpdate);
+
+static inline Process* ProcessList_findProcess(ProcessList* this, pid_t pid) {
+   return (Process*) Hashtable_get(this->processTable, pid);
+}
 
 #endif

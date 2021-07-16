@@ -44,9 +44,8 @@ in the source distribution for its full text.
    M_PSSWP = 121,                \
    CTXT = 122,                   \
    SECATTR = 123,                \
-   PROC_COMM = 124,              \
-   PROC_EXE = 125,               \
-   CWD = 126,                    \
+                                 \
+   DUMMY_BUMP_FIELD = CWD,       \
    // End of list
 
 

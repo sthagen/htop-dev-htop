@@ -7,7 +7,7 @@ in the source distribution for its full text.
 
 #include "config.h" // IWYU pragma: keep
 
-#include "Platform.h"
+#include "freebsd/Platform.h"
 
 #include <devstat.h>
 #include <math.h>
@@ -31,8 +31,6 @@ in the source distribution for its full text.
 #include "DateMeter.h"
 #include "DateTimeMeter.h"
 #include "DiskIOMeter.h"
-#include "FreeBSDProcess.h"
-#include "FreeBSDProcessList.h"
 #include "HostnameMeter.h"
 #include "LoadAverageMeter.h"
 #include "Macros.h"
@@ -46,6 +44,8 @@ in the source distribution for its full text.
 #include "TasksMeter.h"
 #include "UptimeMeter.h"
 #include "XUtils.h"
+#include "freebsd/FreeBSDProcess.h"
+#include "freebsd/FreeBSDProcessList.h"
 #include "zfs/ZfsArcMeter.h"
 #include "zfs/ZfsCompressedArcMeter.h"
 
@@ -179,9 +179,9 @@ int Platform_getMaxPid() {
    return maxPid;
 }
 
-double Platform_setCPUValues(Meter* this, int cpu) {
+double Platform_setCPUValues(Meter* this, unsigned int cpu) {
    const FreeBSDProcessList* fpl = (const FreeBSDProcessList*) this->pl;
-   int cpus = this->pl->cpuCount;
+   unsigned int cpus = this->pl->cpuCount;
    const CPUData* cpuData;
 
    if (cpus == 1) {
@@ -209,8 +209,8 @@ double Platform_setCPUValues(Meter* this, int cpu) {
 
    percent = CLAMP(percent, 0.0, 100.0);
 
-   v[CPU_METER_FREQUENCY] = NAN;
-   v[CPU_METER_TEMPERATURE] = NAN;
+   v[CPU_METER_FREQUENCY] = cpuData->frequency;
+   v[CPU_METER_TEMPERATURE] = cpuData->temperature;
 
    return percent;
 }
@@ -221,7 +221,9 @@ void Platform_setMemoryValues(Meter* this) {
    this->total = pl->totalMem;
    this->values[0] = pl->usedMem;
    this->values[1] = pl->buffersMem;
-   this->values[2] = pl->cachedMem;
+   // this->values[2] = "shared memory, like tmpfs and shm"
+   this->values[3] = pl->cachedMem;
+   // this->values[4] = "available memory"
 }
 
 void Platform_setSwapValues(Meter* this) {
@@ -265,14 +267,14 @@ char* Platform_getProcessEnv(pid_t pid) {
 }
 
 char* Platform_getInodeFilename(pid_t pid, ino_t inode) {
-    (void)pid;
-    (void)inode;
-    return NULL;
+   (void)pid;
+   (void)inode;
+   return NULL;
 }
 
 FileLocks_ProcessData* Platform_getProcessLocks(pid_t pid) {
-    (void)pid;
-    return NULL;
+   (void)pid;
+   return NULL;
 }
 
 bool Platform_getDiskIO(DiskIOData* data) {
@@ -289,7 +291,7 @@ bool Platform_getDiskIO(DiskIOData* data) {
 
    int count = current.dinfo->numdevs;
 
-   unsigned long int bytesReadSum = 0, bytesWriteSum = 0, timeSpendSum = 0;
+   unsigned long long int bytesReadSum = 0, bytesWriteSum = 0, timeSpendSum = 0;
 
    // get data
    for (int i = 0; i < count; i++) {
@@ -315,24 +317,17 @@ bool Platform_getDiskIO(DiskIOData* data) {
    return true;
 }
 
-bool Platform_getNetworkIO(unsigned long int* bytesReceived,
-                           unsigned long int* packetsReceived,
-                           unsigned long int* bytesTransmitted,
-                           unsigned long int* packetsTransmitted) {
-   int r;
-
+bool Platform_getNetworkIO(NetworkIOData* data) {
    // get number of interfaces
    int count;
    size_t countLen = sizeof(count);
    const int countMib[] = { CTL_NET, PF_LINK, NETLINK_GENERIC, IFMIB_SYSTEM, IFMIB_IFCOUNT };
 
-   r = sysctl(countMib, ARRAYSIZE(countMib), &count, &countLen, NULL, 0);
+   int r = sysctl(countMib, ARRAYSIZE(countMib), &count, &countLen, NULL, 0);
    if (r < 0)
       return false;
 
-
-   unsigned long int bytesReceivedSum = 0, packetsReceivedSum = 0, bytesTransmittedSum = 0, packetsTransmittedSum = 0;
-
+   memset(data, 0, sizeof(NetworkIOData));
    for (int i = 1; i <= count; i++) {
       struct ifmibdata ifmd;
       size_t ifmdLen = sizeof(ifmd);
@@ -346,16 +341,12 @@ bool Platform_getNetworkIO(unsigned long int* bytesReceived,
       if (ifmd.ifmd_flags & IFF_LOOPBACK)
          continue;
 
-      bytesReceivedSum += ifmd.ifmd_data.ifi_ibytes;
-      packetsReceivedSum += ifmd.ifmd_data.ifi_ipackets;
-      bytesTransmittedSum += ifmd.ifmd_data.ifi_obytes;
-      packetsTransmittedSum += ifmd.ifmd_data.ifi_opackets;
+      data->bytesReceived += ifmd.ifmd_data.ifi_ibytes;
+      data->packetsReceived += ifmd.ifmd_data.ifi_ipackets;
+      data->bytesTransmitted += ifmd.ifmd_data.ifi_obytes;
+      data->packetsTransmitted += ifmd.ifmd_data.ifi_opackets;
    }
 
-   *bytesReceived = bytesReceivedSum;
-   *packetsReceived = packetsReceivedSum;
-   *bytesTransmitted = bytesTransmittedSum;
-   *packetsTransmitted = packetsTransmittedSum;
    return true;
 }
 

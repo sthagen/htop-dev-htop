@@ -35,6 +35,8 @@ typedef struct CPUData_ {
    unsigned long long int spinPeriod;
    unsigned long long int intrPeriod;
    unsigned long long int idlePeriod;
+
+   int cpuIndex;
 } CPUData;
 
 typedef struct OpenBSDProcessList_ {
@@ -42,11 +44,12 @@ typedef struct OpenBSDProcessList_ {
    kvm_t* kd;
 
    CPUData* cpus;
+   int cpuSpeed;
 
 } OpenBSDProcessList;
 
 
-ProcessList* ProcessList_new(UsersTable* usersTable, Hashtable* pidMatchList, uid_t userId);
+ProcessList* ProcessList_new(UsersTable* usersTable, Hashtable* dynamicMeters, Hashtable* pidMatchList, uid_t userId);
 
 void ProcessList_delete(ProcessList* this);
 

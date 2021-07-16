@@ -9,9 +9,8 @@ in the source distribution for its full text.
 
 #include <sys/sysctl.h>
 
-#include "DarwinProcessList.h"
 #include "Settings.h"
-
+#include "darwin/DarwinProcessList.h"
 
 typedef struct DarwinProcess_ {
    Process super;
@@ -29,8 +28,6 @@ extern const ProcessFieldData Process_fields[LAST_PROCESSFIELD];
 Process* DarwinProcess_new(const Settings* settings);
 
 void Process_delete(Object* cast);
-
-bool Process_isThread(const Process* this);
 
 void DarwinProcess_setFromKInfoProc(Process* proc, const struct kinfo_proc* ps, bool exists);
 

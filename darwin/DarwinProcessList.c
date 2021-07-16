@@ -5,7 +5,7 @@ Released under the GNU GPLv2, see the COPYING file
 in the source distribution for its full text.
 */
 
-#include "DarwinProcessList.h"
+#include "darwin/DarwinProcessList.h"
 
 #include <errno.h>
 #include <libproc.h>
@@ -19,10 +19,10 @@ in the source distribution for its full text.
 #include <sys/sysctl.h>
 
 #include "CRT.h"
-#include "DarwinProcess.h"
-#include "Platform.h"
 #include "ProcessList.h"
-#include "zfs/openzfs_sysctl.h"
+#include "darwin/DarwinProcess.h"
+#include "darwin/Platform.h"
+#include "generic/openzfs_sysctl.h"
 #include "zfs/ZfsArcStats.h"
 
 
@@ -128,10 +128,10 @@ static struct kinfo_proc* ProcessList_getKInfoProcs(size_t* count) {
    CRT_fatalError("Unable to get kinfo_procs");
 }
 
-ProcessList* ProcessList_new(UsersTable* usersTable, Hashtable* pidMatchList, uid_t userId) {
+ProcessList* ProcessList_new(UsersTable* usersTable, Hashtable* dynamicMeters, Hashtable* pidMatchList, uid_t userId) {
    DarwinProcessList* this = xCalloc(1, sizeof(DarwinProcessList));
 
-   ProcessList_init(&this->super, Class(DarwinProcess), usersTable, pidMatchList, userId);
+   ProcessList_init(&this->super, Class(DarwinProcess), usersTable, dynamicMeters, pidMatchList, userId);
 
    /* Initialize the CPU information */
    this->super.cpuCount = ProcessList_allocateCPULoadInfo(&this->prev_load);
@@ -184,7 +184,7 @@ void ProcessList_goThroughEntries(ProcessList* super, bool pauseProcessUpdate) {
 
    /* Get the time difference */
    dpl->global_diff = 0;
-   for (int i = 0; i < dpl->super.cpuCount; ++i) {
+   for (unsigned int i = 0; i < dpl->super.cpuCount; ++i) {
       for (size_t j = 0; j < CPU_STATE_MAX; ++j) {
          dpl->global_diff += dpl->curr_load[i].cpu_ticks[j] - dpl->prev_load[i].cpu_ticks[j];
       }
@@ -213,6 +213,11 @@ void ProcessList_goThroughEntries(ProcessList* super, bool pauseProcessUpdate) {
       DarwinProcess_setFromKInfoProc(&proc->super, &ps[i], preExisting);
       DarwinProcess_setFromLibprocPidinfo(proc, dpl, time_interval);
 
+      if (proc->super.st_uid != ps[i].kp_eproc.e_ucred.cr_uid) {
+         proc->super.st_uid = ps[i].kp_eproc.e_ucred.cr_uid;
+         proc->super.user = UsersTable_getRef(super->usersTable, proc->super.st_uid);
+      }
+
       // Disabled for High Sierra due to bug in macOS High Sierra
       bool isScanThreadSupported  = ! ( CompareKernelVersion(17, 0, 0) >= 0 && CompareKernelVersion(17, 5, 0) < 0);
 
@@ -223,8 +228,6 @@ void ProcessList_goThroughEntries(ProcessList* super, bool pauseProcessUpdate) {
       super->totalTasks += 1;
 
       if (!preExisting) {
-         proc->super.user = UsersTable_getRef(super->usersTable, proc->super.st_uid);
-
          ProcessList_add(super, &proc->super);
       }
    }

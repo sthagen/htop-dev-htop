@@ -5,13 +5,16 @@ Released under the GNU GPLv2, see the COPYING file
 in the source distribution for its full text.
 */
 
-#include "ZfsArcMeter.h"
-#include "ZfsArcStats.h"
+#include "zfs/ZfsArcMeter.h"
+
+#include <stddef.h>
 
 #include "CRT.h"
 #include "Object.h"
 #include "Platform.h"
 #include "RichString.h"
+
+#include "zfs/ZfsArcStats.h"
 
 
 static const int ZfsArcMeter_attributes[] = {
@@ -33,7 +36,9 @@ void ZfsArcMeter_readStats(Meter* this, const ZfsArcStats* stats) {
    this->values[5] = stats->size;
 }
 
-static void ZfsArcMeter_updateValues(Meter* this, char* buffer, size_t size) {
+static void ZfsArcMeter_updateValues(Meter* this) {
+   char* buffer = this->txtBuffer;
+   size_t size = sizeof(this->txtBuffer);
    int written;
    Platform_setZfsArcValues(this);
 

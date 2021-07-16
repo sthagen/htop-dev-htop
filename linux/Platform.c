@@ -7,7 +7,7 @@ in the source distribution for its full text.
 
 #include "config.h"
 
-#include "Platform.h"
+#include "linux/Platform.h"
 
 #include <assert.h>
 #include <ctype.h>
@@ -31,10 +31,6 @@ in the source distribution for its full text.
 #include "DiskIOMeter.h"
 #include "HostnameMeter.h"
 #include "HugePageMeter.h"
-#include "IOPriority.h"
-#include "IOPriorityPanel.h"
-#include "LinuxProcess.h"
-#include "LinuxProcessList.h"
 #include "LoadAverageMeter.h"
 #include "Macros.h"
 #include "MainPanel.h"
@@ -46,25 +42,41 @@ in the source distribution for its full text.
 #include "PressureStallMeter.h"
 #include "ProcessList.h"
 #include "ProvideCurses.h"
-#include "SELinuxMeter.h"
+#include "linux/SELinuxMeter.h"
 #include "Settings.h"
 #include "SwapMeter.h"
 #include "SysArchMeter.h"
-#include "SystemdMeter.h"
 #include "TasksMeter.h"
 #include "UptimeMeter.h"
 #include "XUtils.h"
-#include "ZramMeter.h"
-#include "ZramStats.h"
-
+#include "linux/IOPriority.h"
+#include "linux/IOPriorityPanel.h"
+#include "linux/LinuxProcess.h"
+#include "linux/LinuxProcessList.h"
+#include "linux/SystemdMeter.h"
+#include "linux/ZramMeter.h"
+#include "linux/ZramStats.h"
 #include "zfs/ZfsArcMeter.h"
 #include "zfs/ZfsArcStats.h"
 #include "zfs/ZfsCompressedArcMeter.h"
+
+#ifdef HAVE_LIBCAP
+#include <errno.h>
+#include <sys/capability.h>
+#endif
 
 #ifdef HAVE_SENSORS_SENSORS_H
 #include "LibSensors.h"
 #endif
 
+
+#ifdef HAVE_LIBCAP
+enum CapMode {
+   CAP_MODE_OFF,
+   CAP_MODE_BASIC,
+   CAP_MODE_STRICT
+};
+#endif
 
 const ProcessField Platform_defaultFields[] = { PID, USER, PRIORITY, NICE, M_VIRT, M_RESIDENT, M_SHARE, STATE, PERCENT_CPU, PERCENT_MEM, TIME, COMM, 0 };
 
@@ -112,24 +124,14 @@ static time_t Platform_Battery_cacheTime;
 static double Platform_Battery_cachePercent = NAN;
 static ACPresence Platform_Battery_cacheIsOnAC;
 
-void Platform_init(void) {
-   if (access(PROCDIR, R_OK) != 0) {
-      fprintf(stderr, "Error: could not read procfs (compiled to look in %s).\n", PROCDIR);
-      exit(1);
-   }
-
-#ifdef HAVE_SENSORS_SENSORS_H
-   LibSensors_init(NULL);
+#ifdef HAVE_LIBCAP
+static enum CapMode Platform_capabilitiesMode = CAP_MODE_BASIC;
 #endif
-}
-
-void Platform_done(void) {
-#ifdef HAVE_SENSORS_SENSORS_H
-   LibSensors_cleanup();
-#endif
-}
 
 static Htop_Reaction Platform_actionSetIOPriority(State* st) {
+   if (Settings_isReadonly())
+      return HTOP_OK;
+
    const LinuxProcess* p = (const LinuxProcess*) Panel_getSelected((Panel*)st->mainPanel);
    if (!p)
       return HTOP_OK;
@@ -209,19 +211,25 @@ int Platform_getUptime() {
 }
 
 void Platform_getLoadAverage(double* one, double* five, double* fifteen) {
-   int activeProcs, totalProcs, lastProc;
-   *one = 0;
-   *five = 0;
-   *fifteen = 0;
-
    FILE* fd = fopen(PROCDIR "/loadavg", "r");
-   if (fd) {
-      int total = fscanf(fd, "%32lf %32lf %32lf %32d/%32d %32d", one, five, fifteen,
-         &activeProcs, &totalProcs, &lastProc);
-      (void) total;
-      assert(total == 6);
-      fclose(fd);
-   }
+   if (!fd)
+      goto err;
+
+   double scanOne, scanFive, scanFifteen;
+   int r = fscanf(fd, "%lf %lf %lf", &scanOne, &scanFive, &scanFifteen);
+   fclose(fd);
+   if (r != 3)
+      goto err;
+
+   *one = scanOne;
+   *five = scanFive;
+   *fifteen = scanFifteen;
+   return;
+
+err:
+   *one = NAN;
+   *five = NAN;
+   *fifteen = NAN;
 }
 
 int Platform_getMaxPid() {
@@ -236,7 +244,7 @@ int Platform_getMaxPid() {
    return maxPid;
 }
 
-double Platform_setCPUValues(Meter* this, int cpu) {
+double Platform_setCPUValues(Meter* this, unsigned int cpu) {
    const LinuxProcessList* pl = (const LinuxProcessList*) this->pl;
    const CPUData* cpuData = &(pl->cpus[cpu]);
    double total = (double) ( cpuData->totalPeriod == 0 ? 1 : cpuData->totalPeriod);
@@ -286,12 +294,13 @@ void Platform_setMemoryValues(Meter* this) {
    this->total     = pl->totalMem > lpl->totalHugePageMem ? pl->totalMem - lpl->totalHugePageMem : pl->totalMem;
    this->values[0] = pl->usedMem > lpl->totalHugePageMem ? pl->usedMem - lpl->totalHugePageMem : pl->usedMem;
    this->values[1] = pl->buffersMem;
-   this->values[2] = pl->cachedMem;
-   this->values[3] = pl->availableMem;
+   this->values[2] = pl->sharedMem;
+   this->values[3] = pl->cachedMem;
+   this->values[4] = pl->availableMem;
 
    if (lpl->zfs.enabled != 0) {
       this->values[0] -= lpl->zfs.size;
-      this->values[2] += lpl->zfs.size;
+      this->values[3] += lpl->zfs.size;
    }
 }
 
@@ -365,8 +374,8 @@ char* Platform_getProcessEnv(pid_t pid) {
  */
 char* Platform_getInodeFilename(pid_t pid, ino_t inode) {
    struct stat sb;
-   const struct dirent *de;
-   DIR *dirp;
+   const struct dirent* de;
+   DIR* dirp;
    ssize_t len;
    int fd;
 
@@ -494,12 +503,12 @@ bool Platform_getDiskIO(DiskIOData* data) {
    if (!fd)
       return false;
 
-   unsigned long int read_sum = 0, write_sum = 0, timeSpend_sum = 0;
+   unsigned long long int read_sum = 0, write_sum = 0, timeSpend_sum = 0;
    char lineBuffer[256];
    while (fgets(lineBuffer, sizeof(lineBuffer), fd)) {
       char diskname[32];
-      unsigned long int read_tmp, write_tmp, timeSpend_tmp;
-      if (sscanf(lineBuffer, "%*d %*d %31s %*u %*u %lu %*u %*u %*u %lu %*u %*u %lu", diskname, &read_tmp, &write_tmp, &timeSpend_tmp) == 4) {
+      unsigned long long int read_tmp, write_tmp, timeSpend_tmp;
+      if (sscanf(lineBuffer, "%*d %*d %31s %*u %*u %llu %*u %*u %*u %llu %*u %*u %llu", diskname, &read_tmp, &write_tmp, &timeSpend_tmp) == 4) {
          if (String_startsWith(diskname, "dm-"))
             continue;
 
@@ -534,42 +543,35 @@ bool Platform_getDiskIO(DiskIOData* data) {
    return true;
 }
 
-bool Platform_getNetworkIO(unsigned long int* bytesReceived,
-                           unsigned long int* packetsReceived,
-                           unsigned long int* bytesTransmitted,
-                           unsigned long int* packetsTransmitted) {
+bool Platform_getNetworkIO(NetworkIOData* data) {
    FILE* fd = fopen(PROCDIR "/net/dev", "r");
    if (!fd)
       return false;
 
-   unsigned long int bytesReceivedSum = 0, packetsReceivedSum = 0, bytesTransmittedSum = 0, packetsTransmittedSum = 0;
+   memset(data, 0, sizeof(NetworkIOData));
    char lineBuffer[512];
    while (fgets(lineBuffer, sizeof(lineBuffer), fd)) {
       char interfaceName[32];
-      unsigned long int bytesReceivedParsed, packetsReceivedParsed, bytesTransmittedParsed, packetsTransmittedParsed;
-      if (sscanf(lineBuffer, "%31s %lu %lu %*u %*u %*u %*u %*u %*u %lu %lu",
+      unsigned long long int bytesReceived, packetsReceived, bytesTransmitted, packetsTransmitted;
+      if (sscanf(lineBuffer, "%31s %llu %llu %*u %*u %*u %*u %*u %*u %llu %llu",
                              interfaceName,
-                             &bytesReceivedParsed,
-                             &packetsReceivedParsed,
-                             &bytesTransmittedParsed,
-                             &packetsTransmittedParsed) != 5)
+                             &bytesReceived,
+                             &packetsReceived,
+                             &bytesTransmitted,
+                             &packetsTransmitted) != 5)
          continue;
 
       if (String_eq(interfaceName, "lo:"))
          continue;
 
-      bytesReceivedSum += bytesReceivedParsed;
-      packetsReceivedSum += packetsReceivedParsed;
-      bytesTransmittedSum += bytesTransmittedParsed;
-      packetsTransmittedSum += packetsTransmittedParsed;
+      data->bytesReceived += bytesReceived;
+      data->packetsReceived += packetsReceived;
+      data->bytesTransmitted += bytesTransmitted;
+      data->packetsTransmitted += packetsTransmitted;
    }
 
    fclose(fd);
 
-   *bytesReceived = bytesReceivedSum;
-   *packetsReceived = packetsReceivedSum;
-   *bytesTransmitted = bytesTransmittedSum;
-   *packetsTransmitted = packetsTransmittedSum;
    return true;
 }
 
@@ -687,8 +689,7 @@ static ACPresence procAcpiCheck(void) {
          break;
    }
 
-   if (dir)
-      closedir(dir);
+   closedir(dir);
 
    return isOn;
 }
@@ -850,4 +851,161 @@ void Platform_getBattery(double* percent, ACPresence* isOnAC) {
    Platform_Battery_cachePercent = *percent;
    Platform_Battery_cacheIsOnAC = *isOnAC;
    Platform_Battery_cacheTime = now;
+}
+
+void Platform_longOptionsUsage(const char* name)
+{
+#ifdef HAVE_LIBCAP
+   printf(
+"   --drop-capabilities[=off|basic|strict] Drop Linux capabilities when running as root\n"
+"                                off - do not drop any capabilities\n"
+"                                basic (default) - drop all capabilities not needed by %s\n"
+"                                strict - drop all capabilities except those needed for\n"
+"                                         core functionality\n", name);
+#else
+   (void) name;
+#endif
+}
+
+bool Platform_getLongOption(int opt, int argc, char** argv) {
+#ifndef HAVE_LIBCAP
+   (void) argc;
+   (void) argv;
+#endif
+
+   switch (opt) {
+#ifdef HAVE_LIBCAP
+      case 160: {
+         const char* mode = optarg;
+         if (!mode && optind < argc && argv[optind] != NULL &&
+            (argv[optind][0] != '\0' && argv[optind][0] != '-')) {
+            mode = argv[optind++];
+         }
+
+         if (!mode || String_eq(mode, "basic")) {
+            Platform_capabilitiesMode = CAP_MODE_BASIC;
+         } else if (String_eq(mode, "off")) {
+            Platform_capabilitiesMode = CAP_MODE_OFF;
+         } else if (String_eq(mode, "strict")) {
+            Platform_capabilitiesMode = CAP_MODE_STRICT;
+         } else {
+            fprintf(stderr, "Error: invalid capabilities mode \"%s\".\n", mode);
+            exit(1);
+         }
+         return true;
+      }
+#endif
+
+      default:
+         break;
+   }
+   return false;
+}
+
+#ifdef HAVE_LIBCAP
+static int dropCapabilities(enum CapMode mode) {
+
+   if (mode == CAP_MODE_OFF)
+      return 0;
+
+   /* capabilities we keep to operate */
+   const cap_value_t keepcapsStrict[] = {
+      CAP_DAC_READ_SEARCH,
+      CAP_SYS_PTRACE,
+   };
+   const cap_value_t keepcapsBasic[] = {
+      CAP_DAC_READ_SEARCH,   /* read non world-readable process files of other users, like /proc/[pid]/io */
+      CAP_KILL,              /* send signals to processes of other users */
+      CAP_SYS_NICE,          /* lower process nice value / change nice value for arbitrary processes */
+      CAP_SYS_PTRACE,        /* read /proc/[pid]/exe */
+#ifdef HAVE_DELAYACCT
+      CAP_NET_ADMIN,         /* communicate over netlink socket for delay accounting */
+#endif
+   };
+   const cap_value_t* const keepcaps = (mode == CAP_MODE_BASIC) ? keepcapsBasic : keepcapsStrict;
+   const size_t ncap = (mode == CAP_MODE_BASIC) ? ARRAYSIZE(keepcapsBasic) : ARRAYSIZE(keepcapsStrict);
+
+   cap_t caps = cap_init();
+   if (caps == NULL) {
+      fprintf(stderr, "Error: can not initialize capabilities: %s\n", strerror(errno));
+      return -1;
+   }
+
+   if (cap_clear(caps) < 0) {
+      fprintf(stderr, "Error: can not clear capabilities: %s\n", strerror(errno));
+      cap_free(caps);
+      return -1;
+   }
+
+   cap_t currCaps = cap_get_proc();
+   if (currCaps == NULL) {
+      fprintf(stderr, "Error: can not get current process capabilities: %s\n", strerror(errno));
+      cap_free(caps);
+      return -1;
+   }
+
+   for (size_t i = 0; i < ncap; i++) {
+      if (!CAP_IS_SUPPORTED(keepcaps[i]))
+         continue;
+
+      cap_flag_value_t current;
+      if (cap_get_flag(currCaps, keepcaps[i], CAP_PERMITTED, &current) < 0) {
+         fprintf(stderr, "Error: can not get current value of capability %d: %s\n", keepcaps[i], strerror(errno));
+         cap_free(currCaps);
+         cap_free(caps);
+         return -1;
+      }
+
+      if (current != CAP_SET)
+         continue;
+
+      if (cap_set_flag(caps, CAP_PERMITTED, 1, &keepcaps[i], CAP_SET) < 0) {
+         fprintf(stderr, "Error: can not set permitted capability %d: %s\n", keepcaps[i], strerror(errno));
+         cap_free(currCaps);
+         cap_free(caps);
+         return -1;
+      }
+
+      if (cap_set_flag(caps, CAP_EFFECTIVE, 1, &keepcaps[i], CAP_SET) < 0) {
+         fprintf(stderr, "Error: can not set effective capability %d: %s\n", keepcaps[i], strerror(errno));
+         cap_free(currCaps);
+         cap_free(caps);
+         return -1;
+      }
+   }
+
+   if (cap_set_proc(caps) < 0) {
+      fprintf(stderr, "Error: can not set process capabilities: %s\n", strerror(errno));
+      cap_free(currCaps);
+      cap_free(caps);
+      return -1;
+   }
+
+   cap_free(currCaps);
+   cap_free(caps);
+
+   return 0;
+}
+#endif
+
+void Platform_init(void) {
+#ifdef HAVE_LIBCAP
+   if (dropCapabilities(Platform_capabilitiesMode) < 0)
+      exit(1);
+#endif
+
+   if (access(PROCDIR, R_OK) != 0) {
+      fprintf(stderr, "Error: could not read procfs (compiled to look in %s).\n", PROCDIR);
+      exit(1);
+   }
+
+#ifdef HAVE_SENSORS_SENSORS_H
+   LibSensors_init(NULL);
+#endif
+}
+
+void Platform_done(void) {
+#ifdef HAVE_SENSORS_SENSORS_H
+   LibSensors_cleanup();
+#endif
 }

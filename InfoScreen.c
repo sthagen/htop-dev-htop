@@ -4,7 +4,6 @@
 
 #include <stdarg.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include "CRT.h"
@@ -28,7 +27,7 @@ InfoScreen* InfoScreen_init(InfoScreen* this, const Process* process, FunctionBa
    }
    this->display = Panel_new(0, 1, COLS, height, Class(ListItem), false, bar);
    this->inc = IncSet_new(bar);
-   this->lines = Vector_new(this->display->items->type, true, DEFAULT_SIZE);
+   this->lines = Vector_new(Vector_type(this->display->items), true, DEFAULT_SIZE);
    Panel_setHeader(this->display, panelHeader);
    return this;
 }
@@ -95,7 +94,9 @@ void InfoScreen_run(InfoScreen* this) {
       if (this->inc->active) {
          (void) move(LINES - 1, CRT_cursorX);
       }
+#ifdef HAVE_SET_ESCDELAY
       set_escdelay(25);
+#endif
       int ch = getch();
 
       if (ch == ERR) {
@@ -105,6 +106,7 @@ void InfoScreen_run(InfoScreen* this) {
          }
       }
 
+#ifdef HAVE_GETMOUSE
       if (ch == KEY_MOUSE) {
          MEVENT mevent;
          int ok = getmouse(&mevent);
@@ -126,6 +128,7 @@ void InfoScreen_run(InfoScreen* this) {
             #endif
          }
       }
+#endif
 
       if (this->inc->active) {
          IncSet_handleKey(this->inc, ch, panel, IncSet_getListItemValue, this->lines);

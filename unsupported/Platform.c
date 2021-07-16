@@ -8,7 +8,7 @@ in the source distribution for its full text.
 
 #include "config.h" // IWYU pragma: keep
 
-#include "Platform.h"
+#include "unsupported/Platform.h"
 
 #include <math.h>
 
@@ -64,6 +64,8 @@ const MeterClass* const Platform_meterTypes[] = {
    NULL
 };
 
+static const char Platform_unsupported[] = "unsupported";
+
 void Platform_init(void) {
    /* no platform-specific setup needed */
 }
@@ -91,7 +93,7 @@ int Platform_getMaxPid() {
    return 1;
 }
 
-double Platform_setCPUValues(Meter* this, int cpu) {
+double Platform_setCPUValues(Meter* this, unsigned int cpu) {
    (void) cpu;
 
    double* v = this->values;
@@ -122,14 +124,14 @@ char* Platform_getProcessEnv(pid_t pid) {
 }
 
 char* Platform_getInodeFilename(pid_t pid, ino_t inode) {
-    (void)pid;
-    (void)inode;
-    return NULL;
+   (void)pid;
+   (void)inode;
+   return NULL;
 }
 
 FileLocks_ProcessData* Platform_getProcessLocks(pid_t pid) {
-    (void)pid;
-    return NULL;
+   (void)pid;
+   return NULL;
 }
 
 bool Platform_getDiskIO(DiskIOData* data) {
@@ -137,18 +139,20 @@ bool Platform_getDiskIO(DiskIOData* data) {
    return false;
 }
 
-bool Platform_getNetworkIO(unsigned long int* bytesReceived,
-                           unsigned long int* packetsReceived,
-                           unsigned long int* bytesTransmitted,
-                           unsigned long int* packetsTransmitted) {
-   *bytesReceived = 0;
-   *packetsReceived = 0;
-   *bytesTransmitted = 0;
-   *packetsTransmitted = 0;
+bool Platform_getNetworkIO(NetworkIOData* data) {
+   (void)data;
    return false;
 }
 
 void Platform_getBattery(double* percent, ACPresence* isOnAC) {
    *percent = NAN;
    *isOnAC = AC_ERROR;
+}
+
+void Platform_getHostname(char* buffer, size_t size) {
+   String_safeStrncpy(buffer, Platform_unsupported, size);
+}
+
+void Platform_getRelease(char** string) {
+   *string = xStrdup(Platform_unsupported);
 }

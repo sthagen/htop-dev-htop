@@ -1,5 +1,3 @@
-bin_PROGRAMS = htop
-
 dist_man_MANS = htop.1
 EXTRA_DIST = \
 	$(dist_man_MANS) \
@@ -32,6 +30,7 @@ myhtopsources = \
 	ClockMeter.c \
 	ColorsPanel.c \
 	ColumnsPanel.c \
+	CommandLine.c \
 	CommandScreen.c \
 	Compat.c \
 	CPUMeter.c \
@@ -40,12 +39,12 @@ myhtopsources = \
 	DateTimeMeter.c \
 	DiskIOMeter.c \
 	DisplayOptionsPanel.c \
+	DynamicMeter.c \
 	EnvScreen.c \
 	FunctionBar.c \
 	Hashtable.c \
 	Header.c \
 	HostnameMeter.c \
-	htop.c \
 	IncSet.c \
 	InfoScreen.c \
 	ListItem.c \
@@ -88,12 +87,14 @@ myhtopheaders = \
 	ClockMeter.h \
 	ColorsPanel.h \
 	ColumnsPanel.h \
+	CommandLine.h \
 	CommandScreen.h \
 	Compat.h \
 	DateMeter.h \
 	DateTimeMeter.h \
 	DiskIOMeter.h \
 	DisplayOptionsPanel.h \
+	DynamicMeter.h \
 	EnvScreen.h \
 	FunctionBar.h \
 	Hashtable.h \
@@ -134,6 +135,9 @@ myhtopheaders = \
 # -----
 
 linux_platform_headers = \
+	generic/gettime.h \
+	generic/hostname.h \
+	generic/uname.h \
 	linux/HugePageMeter.h \
 	linux/IOPriority.h \
 	linux/IOPriorityPanel.h \
@@ -151,9 +155,10 @@ linux_platform_headers = \
 	zfs/ZfsArcStats.h \
 	zfs/ZfsCompressedArcMeter.h
 
-if HTOP_LINUX
-AM_LDFLAGS += -rdynamic
-myhtopplatsources = \
+linux_platform_sources = \
+	generic/gettime.c \
+	generic/hostname.c \
+	generic/uname.c \
 	linux/HugePageMeter.c \
 	linux/IOPriorityPanel.c \
 	linux/LibSensors.c \
@@ -167,7 +172,11 @@ myhtopplatsources = \
 	zfs/ZfsArcMeter.c \
 	zfs/ZfsCompressedArcMeter.c
 
+if HTOP_LINUX
+AM_LDFLAGS += -rdynamic
+myhtopplatprogram = htop
 myhtopplatheaders = $(linux_platform_headers)
+myhtopplatsources = $(linux_platform_sources)
 endif
 
 # FreeBSD
@@ -178,17 +187,29 @@ freebsd_platform_headers = \
 	freebsd/FreeBSDProcess.h \
 	freebsd/Platform.h \
 	freebsd/ProcessField.h \
+	generic/gettime.h \
+	generic/hostname.h \
+	generic/openzfs_sysctl.h \
+	generic/uname.h \
 	zfs/ZfsArcMeter.h \
-	zfs/ZfsCompressedArcMeter.h \
 	zfs/ZfsArcStats.h \
-	zfs/openzfs_sysctl.h
+	zfs/ZfsCompressedArcMeter.h
+
+freebsd_platform_sources = \
+	freebsd/Platform.c \
+	freebsd/FreeBSDProcessList.c \
+	freebsd/FreeBSDProcess.c \
+	generic/gettime.c \
+	generic/hostname.c \
+	generic/openzfs_sysctl.c \
+	generic/uname.c \
+	zfs/ZfsArcMeter.c \
+	zfs/ZfsCompressedArcMeter.c
 
 if HTOP_FREEBSD
-myhtopplatsources = freebsd/Platform.c freebsd/FreeBSDProcessList.c \
-freebsd/FreeBSDProcess.c \
-zfs/ZfsArcMeter.c zfs/ZfsCompressedArcMeter.c zfs/openzfs_sysctl.c
-
+myhtopplatprogram = htop
 myhtopplatheaders = $(freebsd_platform_headers)
+myhtopplatsources = $(freebsd_platform_sources)
 endif
 
 # DragonFlyBSD
@@ -198,31 +219,75 @@ dragonflybsd_platform_headers = \
 	dragonflybsd/DragonFlyBSDProcessList.h \
 	dragonflybsd/DragonFlyBSDProcess.h \
 	dragonflybsd/Platform.h \
-	dragonflybsd/ProcessField.h
+	dragonflybsd/ProcessField.h \
+	generic/gettime.h \
+	generic/hostname.h \
+	generic/uname.h
+
+dragonflybsd_platform_sources = \
+	dragonflybsd/DragonFlyBSDProcessList.c \
+	dragonflybsd/DragonFlyBSDProcess.c \
+	dragonflybsd/Platform.c \
+	generic/gettime.c \
+	generic/hostname.c \
+	generic/uname.c
 
 if HTOP_DRAGONFLYBSD
-myhtopplatsources = \
-	dragonflybsd/Platform.c \
-	dragonflybsd/DragonFlyBSDProcessList.c \
-	dragonflybsd/DragonFlyBSDProcess.c
-
+myhtopplatprogram = htop
 myhtopplatheaders = $(dragonflybsd_platform_headers)
+myhtopplatsources = $(dragonflybsd_platform_sources)
+endif
+
+# NetBSD
+# -------
+
+netbsd_platform_headers = \
+	generic/gettime.h \
+	generic/hostname.h \
+	generic/uname.h \
+	netbsd/Platform.h \
+	netbsd/ProcessField.h \
+	netbsd/NetBSDProcess.h \
+	netbsd/NetBSDProcessList.h
+
+netbsd_platform_sources = \
+	generic/gettime.c \
+	generic/hostname.c \
+	generic/uname.c \
+	netbsd/Platform.c \
+	netbsd/NetBSDProcess.c \
+	netbsd/NetBSDProcessList.c
+
+if HTOP_NETBSD
+myhtopplatprogram = htop
+myhtopplatheaders = $(netbsd_platform_headers)
+myhtopplatsources = $(netbsd_platform_sources)
 endif
 
 # OpenBSD
 # -------
 
 openbsd_platform_headers = \
+	generic/gettime.h \
+	generic/hostname.h \
+	generic/uname.h \
 	openbsd/OpenBSDProcessList.h \
 	openbsd/OpenBSDProcess.h \
 	openbsd/Platform.h \
 	openbsd/ProcessField.h
 
-if HTOP_OPENBSD
-myhtopplatsources = openbsd/Platform.c openbsd/OpenBSDProcessList.c \
-openbsd/OpenBSDProcess.c
+openbsd_platform_sources = \
+	generic/gettime.c \
+	generic/hostname.c \
+	generic/uname.c \
+	openbsd/OpenBSDProcessList.c \
+	openbsd/OpenBSDProcess.c \
+	openbsd/Platform.c
 
+if HTOP_OPENBSD
+myhtopplatprogram = htop
 myhtopplatheaders = $(openbsd_platform_headers)
+myhtopplatsources = $(openbsd_platform_sources)
 endif
 
 # Darwin
@@ -233,59 +298,122 @@ darwin_platform_headers = \
 	darwin/DarwinProcessList.h \
 	darwin/Platform.h \
 	darwin/ProcessField.h \
+	generic/gettime.h \
+	generic/hostname.h \
+	generic/openzfs_sysctl.h \
+	generic/uname.h \
 	zfs/ZfsArcMeter.h \
-	zfs/ZfsCompressedArcMeter.h \
 	zfs/ZfsArcStats.h \
-	zfs/openzfs_sysctl.h
+	zfs/ZfsCompressedArcMeter.h
+
+darwin_platform_sources = \
+	darwin/Platform.c \
+	darwin/DarwinProcess.c \
+	darwin/DarwinProcessList.c \
+	generic/gettime.c \
+	generic/hostname.c \
+	generic/openzfs_sysctl.c \
+	generic/uname.c \
+	zfs/ZfsArcMeter.c \
+	zfs/ZfsCompressedArcMeter.c
 
 if HTOP_DARWIN
 AM_LDFLAGS += -framework IOKit -framework CoreFoundation
-myhtopplatsources = darwin/Platform.c darwin/DarwinProcess.c \
-darwin/DarwinProcessList.c \
-zfs/ZfsArcMeter.c zfs/ZfsCompressedArcMeter.c zfs/openzfs_sysctl.c
-
+myhtopplatprogram = htop
 myhtopplatheaders = $(darwin_platform_headers)
+myhtopplatsources = $(darwin_platform_sources)
 endif
 
 # Solaris
 # -------
 
 solaris_platform_headers = \
-	solaris/Platform.h \
+	generic/gettime.h \
+	generic/hostname.h \
+	generic/uname.h \
 	solaris/ProcessField.h \
+	solaris/Platform.h \
 	solaris/SolarisProcess.h \
 	solaris/SolarisProcessList.h \
 	zfs/ZfsArcMeter.h \
-	zfs/ZfsCompressedArcMeter.h \
-	zfs/ZfsArcStats.h
+	zfs/ZfsArcStats.h \
+	zfs/ZfsCompressedArcMeter.h
+
+solaris_platform_sources = \
+	generic/gettime.c \
+	generic/hostname.c \
+	generic/uname.c \
+	solaris/Platform.c \
+	solaris/SolarisProcess.c \
+	solaris/SolarisProcessList.c \
+	zfs/ZfsArcMeter.c \
+	zfs/ZfsCompressedArcMeter.c
 
 if HTOP_SOLARIS
-myhtopplatsources = solaris/Platform.c \
-solaris/SolarisProcess.c solaris/SolarisProcessList.c \
-zfs/ZfsArcMeter.c zfs/ZfsCompressedArcMeter.c
-
+myhtopplatprogram = htop
 myhtopplatheaders = $(solaris_platform_headers)
+myhtopplatsources = $(solaris_platform_sources)
+endif
+
+# Performance Co-Pilot (PCP)
+# --------------------------
+
+pcp_platform_headers = \
+	pcp/PCPDynamicMeter.h \
+	pcp/PCPProcess.h \
+	pcp/PCPProcessList.h \
+	pcp/Platform.h \
+	pcp/ProcessField.h \
+	linux/PressureStallMeter.h \
+	linux/ZramMeter.h \
+	linux/ZramStats.h \
+	zfs/ZfsArcMeter.h \
+	zfs/ZfsArcStats.h \
+	zfs/ZfsCompressedArcMeter.h
+
+pcp_platform_sources = \
+	pcp/PCPDynamicMeter.c \
+	pcp/PCPProcess.c \
+	pcp/PCPProcessList.c \
+	pcp/Platform.c \
+	linux/PressureStallMeter.c \
+	linux/ZramMeter.c \
+	zfs/ZfsArcMeter.c \
+	zfs/ZfsCompressedArcMeter.c
+
+if HTOP_PCP
+myhtopplatprogram = pcp-htop
+myhtopplatheaders = $(pcp_platform_headers)
+myhtopplatsources = $(pcp_platform_sources)
+pcp_htop_SOURCES  = $(myhtopplatprogram).c $(myhtopheaders) $(myhtopplatheaders) $(myhtopsources) $(myhtopplatsources)
 endif
 
 # Unsupported
 # -----------
 
 unsupported_platform_headers = \
+	generic/gettime.h \
 	unsupported/Platform.h \
 	unsupported/ProcessField.h \
 	unsupported/UnsupportedProcess.h \
 	unsupported/UnsupportedProcessList.h
 
-if HTOP_UNSUPPORTED
-myhtopplatsources = unsupported/Platform.c \
-unsupported/UnsupportedProcess.c unsupported/UnsupportedProcessList.c
+unsupported_platform_sources = \
+	generic/gettime.c \
+	unsupported/Platform.c \
+	unsupported/UnsupportedProcess.c \
+	unsupported/UnsupportedProcessList.c
 
+if HTOP_UNSUPPORTED
+myhtopplatprogram = htop
+myhtopplatsources = $(unsupported_platform_sources)
 myhtopplatheaders = $(unsupported_platform_headers)
 endif
 
 # ----
 
-htop_SOURCES  = $(myhtopheaders) $(myhtopplatheaders) $(myhtopsources) $(myhtopplatsources)
+bin_PROGRAMS = $(myhtopplatprogram)
+htop_SOURCES = $(myhtopplatprogram).c $(myhtopheaders) $(myhtopplatheaders) $(myhtopsources) $(myhtopplatsources)
 nodist_htop_SOURCES = config.h
 
 target:

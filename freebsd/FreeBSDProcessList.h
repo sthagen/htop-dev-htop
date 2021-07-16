@@ -23,6 +23,9 @@ typedef struct CPUData_ {
    double systemPercent;
    double irqPercent;
    double systemAllPercent;
+
+   double frequency;
+   double temperature;
 } CPUData;
 
 typedef struct FreeBSDProcessList_ {
@@ -36,8 +39,6 @@ typedef struct FreeBSDProcessList_ {
 
    CPUData* cpus;
 
-   Hashtable* ttys;
-
    unsigned long* cp_time_o;
    unsigned long* cp_time_n;
 
@@ -46,7 +47,7 @@ typedef struct FreeBSDProcessList_ {
 
 } FreeBSDProcessList;
 
-ProcessList* ProcessList_new(UsersTable* usersTable, Hashtable* pidMatchList, uid_t userId);
+ProcessList* ProcessList_new(UsersTable* usersTable, Hashtable* dynamicMeters, Hashtable* pidMatchList, uid_t userId);
 
 void ProcessList_delete(ProcessList* this);
 

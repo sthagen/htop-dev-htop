@@ -13,6 +13,8 @@ in the source distribution for its full text.
 #include <string.h>
 
 #include "CRT.h"
+#include "CPUMeter.h"
+#include "DynamicMeter.h"
 #include "Macros.h"
 #include "Object.h"
 #include "Platform.h"
@@ -44,7 +46,9 @@ void Header_populateFromSettings(Header* this) {
    Header_forEachColumn(this, col) {
       const MeterColumnSettings* colSettings = &this->settings->columns[col];
       for (int i = 0; i < colSettings->len; i++) {
-         Header_addMeterByName(this, colSettings->names[i], col);
+         if (!Header_addMeterByName(this, colSettings->names[i], col)) {
+            continue;
+         }
          if (colSettings->modes[i] != 0) {
             Header_setMode(this, i, colSettings->modes[i], col);
          }
@@ -70,8 +74,11 @@ void Header_writeBackToSettings(const Header* this) {
       for (int i = 0; i < len; i++) {
          const Meter* meter = (Meter*) Vector_get(vec, i);
          char* name;
-         if (meter->param) {
-            xAsprintf(&name, "%s(%d)", As_Meter(meter)->name, meter->param);
+         if (meter->param && As_Meter(meter) == &DynamicMeter_class) {
+            const char* dynamic = DynamicMeter_lookup(this->pl->dynamicMeters, meter->param);
+            xAsprintf(&name, "%s(%s)", As_Meter(meter)->name, dynamic);
+         } else if (meter->param && As_Meter(meter) == &CPUMeter_class) {
+            xAsprintf(&name, "%s(%u)", As_Meter(meter)->name, meter->param);
          } else {
             xAsprintf(&name, "%s", As_Meter(meter)->name);
          }
@@ -81,23 +88,29 @@ void Header_writeBackToSettings(const Header* this) {
    }
 }
 
-MeterModeId Header_addMeterByName(Header* this, const char* name, int column) {
+bool Header_addMeterByName(Header* this, const char* name, int column) {
    Vector* meters = this->columns[column];
 
    char* paren = strchr(name, '(');
-   int param = 0;
+   unsigned int param = 0;
    if (paren) {
-      int ok = sscanf(paren, "(%10d)", &param);
-      if (!ok)
-         param = 0;
+      char* end, dynamic[32] = {0};
+      int ok = sscanf(paren, "(%10u)", &param); // CPUMeter
+      if (!ok) {
+         if (sscanf(paren, "(%30s)", dynamic)) { // DynamicMeter
+            if ((end = strrchr(dynamic, ')')) == NULL)
+               return false;    // indicate htoprc parse failure
+            *end = '\0';
+            if (!DynamicMeter_search(this->pl->dynamicMeters, dynamic, &param))
+               return false;    // indicates name lookup failure
+         }
+      }
       *paren = '\0';
    }
-   MeterModeId mode = TEXT_METERMODE;
    for (const MeterClass* const* type = Platform_meterTypes; *type; type++) {
       if (String_eq(name, (*type)->name)) {
          Meter* meter = Meter_new(this->pl, param, *type);
          Vector_add(meters, meter);
-         mode = meter->mode;
          break;
       }
    }
@@ -105,7 +118,7 @@ MeterModeId Header_addMeterByName(Header* this, const char* name, int column) {
    if (paren)
       *paren = '(';
 
-   return mode;
+   return true;
 }
 
 void Header_setMode(Header* this, int i, MeterModeId mode, int column) {
@@ -118,7 +131,7 @@ void Header_setMode(Header* this, int i, MeterModeId mode, int column) {
    Meter_setMode(meter, mode);
 }
 
-Meter* Header_addMeterByClass(Header* this, const MeterClass* type, int param, int column) {
+Meter* Header_addMeterByClass(Header* this, const MeterClass* type, unsigned int param, int column) {
    Vector* meters = this->columns[column];
 
    Meter* meter = Meter_new(this->pl, param, type);
@@ -174,6 +187,17 @@ void Header_draw(const Header* this) {
          y += meter->h;
       }
       x += width + pad;
+   }
+}
+
+void Header_updateData(Header* this) {
+   Header_forEachColumn(this, col) {
+      Vector* meters = this->columns[col];
+      int items = Vector_size(meters);
+      for (int i = 0; i < items; i++) {
+         Meter* meter = (Meter*) Vector_get(meters, i);
+         Meter_updateValues(meter);
+      }
    }
 }
 

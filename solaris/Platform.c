@@ -7,7 +7,19 @@ Released under the GNU GPLv2, see the COPYING file
 in the source distribution for its full text.
 */
 
-#include "Platform.h"
+#include "solaris/Platform.h"
+
+#include <kstat.h>
+#include <math.h>
+#include <string.h>
+#include <time.h>
+#include <utmpx.h>
+#include <sys/loadavg.h>
+#include <sys/resource.h>
+#include <sys/types.h>
+#include <sys/time.h>
+#include <sys/var.h>
+
 #include "Macros.h"
 #include "Meter.h"
 #include "CPUMeter.h"
@@ -26,19 +38,6 @@ in the source distribution for its full text.
 #include "SolarisProcess.h"
 #include "SolarisProcessList.h"
 
-#include <sys/types.h>
-#include <sys/time.h>
-#include <sys/resource.h>
-#include <utmpx.h>
-#include <sys/loadavg.h>
-#include <string.h>
-#include <kstat.h>
-#include <time.h>
-#include <math.h>
-#include <sys/var.h>
-
-
-double plat_loadavg[3] = {0};
 
 const SignalItem Platform_signals[] = {
    { .name = " 0 Cancel",      .number =  0 },
@@ -151,7 +150,13 @@ int Platform_getUptime() {
 }
 
 void Platform_getLoadAverage(double* one, double* five, double* fifteen) {
-   getloadavg( plat_loadavg, 3 );
+   double plat_loadavg[3];
+   if (getloadavg( plat_loadavg, 3 ) < 0) {
+      *one = NAN;
+      *five = NAN;
+      *fifteen = NAN;
+      return;
+   }
    *one = plat_loadavg[LOADAVG_1MIN];
    *five = plat_loadavg[LOADAVG_5MIN];
    *fifteen = plat_loadavg[LOADAVG_15MIN];
@@ -162,7 +167,7 @@ int Platform_getMaxPid() {
 
    kstat_ctl_t* kc = kstat_open();
    if (kc != NULL) {
-      kstat_t* kshandle = kstat_lookup(kc, "unix", 0, "var");
+      kstat_t* kshandle = kstat_lookup_wrapper(kc, "unix", 0, "var");
       if (kshandle != NULL) {
          kstat_read(kc, kshandle, NULL);
 
@@ -177,9 +182,9 @@ int Platform_getMaxPid() {
    return vproc;
 }
 
-double Platform_setCPUValues(Meter* this, int cpu) {
+double Platform_setCPUValues(Meter* this, unsigned int cpu) {
    const SolarisProcessList* spl = (const SolarisProcessList*) this->pl;
-   int cpus = this->pl->cpuCount;
+   unsigned int cpus = this->pl->cpuCount;
    const CPUData* cpuData = NULL;
 
    if (cpus == 1) {
@@ -218,7 +223,9 @@ void Platform_setMemoryValues(Meter* this) {
    this->total = pl->totalMem;
    this->values[0] = pl->usedMem;
    this->values[1] = pl->buffersMem;
-   this->values[2] = pl->cachedMem;
+   // this->values[2] = "shared memory, like tmpfs and shm"
+   this->values[3] = pl->cachedMem;
+   // this->values[4] = "available memory"
 }
 
 void Platform_setSwapValues(Meter* this) {
@@ -252,7 +259,7 @@ static int Platform_buildenv(void* accum, struct ps_prochandle* Phandle, uintptr
       return 1;
    }
    strlcpy( accump->env + accump->size, str, (accump->capacity - accump->size));
-   strncpy( accump->env + accump->size + thissz + 1, "\n", 1);
+   strncpy( accump->env + accump->size + thissz + 1, "\n", 2);
    accump->size = accump->size + thissz + 1;
    return 0;
 }
@@ -264,7 +271,7 @@ char* Platform_getProcessEnv(pid_t pid) {
    struct ps_prochandle* Phandle;
 
    if ((Phandle = Pgrab(realpid, PGRAB_RDONLY, &graberr)) == NULL) {
-      return "Unable to read process environment.";
+      return NULL;
    }
 
    envBuilder.capacity = 4096;
@@ -280,14 +287,14 @@ char* Platform_getProcessEnv(pid_t pid) {
 }
 
 char* Platform_getInodeFilename(pid_t pid, ino_t inode) {
-    (void)pid;
-    (void)inode;
-    return NULL;
+   (void)pid;
+   (void)inode;
+   return NULL;
 }
 
 FileLocks_ProcessData* Platform_getProcessLocks(pid_t pid) {
-    (void)pid;
-    return NULL;
+   (void)pid;
+   return NULL;
 }
 
 bool Platform_getDiskIO(DiskIOData* data) {
@@ -296,15 +303,9 @@ bool Platform_getDiskIO(DiskIOData* data) {
    return false;
 }
 
-bool Platform_getNetworkIO(unsigned long int* bytesReceived,
-                           unsigned long int* packetsReceived,
-                           unsigned long int* bytesTransmitted,
-                           unsigned long int* packetsTransmitted) {
+bool Platform_getNetworkIO(NetworkIOData* data) {
    // TODO
-   *bytesReceived = 0;
-   *packetsReceived = 0;
-   *bytesTransmitted = 0;
-   *packetsTransmitted = 0;
+   (void)data;
    return false;
 }
 

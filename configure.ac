@@ -6,7 +6,7 @@
 # ----------------------------------------------------------------------
 
 AC_PREREQ([2.69])
-AC_INIT([htop], [3.0.6-dev], [htop@groups.io], [], [https://htop.dev/])
+AC_INIT([htop], [3.1.0-dev], [htop@groups.io], [], [https://htop.dev/])
 
 AC_CONFIG_SRCDIR([htop.c])
 AC_CONFIG_AUX_DIR([build-aux])
@@ -30,6 +30,10 @@ linux*|gnu*)
 freebsd*|kfreebsd*)
    my_htop_platform=freebsd
    AC_DEFINE([HTOP_FREEBSD], [], [Building for FreeBSD.])
+   ;;
+netbsd*)
+   my_htop_platform=netbsd
+   AC_DEFINE([HTOP_NETBSD], [], [Building for NetBSD.])
    ;;
 openbsd*)
    my_htop_platform=openbsd
@@ -95,6 +99,31 @@ esac
 
 # ----------------------------------------------------------------------
 
+# ----------------------------------------------------------------------
+# Checks for a PCP-based htop build.  (https://pcp.io)
+# ----------------------------------------------------------------------
+
+AC_ARG_ENABLE([pcp],
+              [AS_HELP_STRING([--enable-pcp],
+                              [build a pcp-htop binary @<:@default=no@:>@])],
+              [],
+              [enable_pcp=no])
+case "$enable_pcp" in
+   no)
+      ;;
+   yes)
+      AC_CHECK_HEADERS([pcp/pmapi.h], [my_htop_platform=pcp],
+                       [AC_MSG_ERROR([can not find PCP header file])])
+      AC_SEARCH_LIBS([pmNewContext], [pcp], [], [AC_MSG_ERROR([can not find PCP library])])
+      AC_DEFINE([HTOP_PCP], [1], [Define if building pcp-htop binary.])
+      ;;
+   *)
+      AC_MSG_ERROR([bad value '$enable_pcp' for --enable-pcp option])
+      ;;
+esac
+
+# ----------------------------------------------------------------------
+
 
 # ----------------------------------------------------------------------
 # Checks for generic header files.
@@ -108,6 +137,7 @@ AC_CHECK_HEADERS([ \
     strings.h \
     sys/param.h \
     sys/time.h \
+    sys/utsname.h \
     unistd.h
    ], [], [AC_MSG_ERROR([can not find required generic header files])])
 
@@ -143,6 +173,20 @@ AC_TYPE_UINT16_T
 AC_TYPE_UINT32_T
 AC_TYPE_UINT64_T
 
+AC_MSG_CHECKING(for alloc_size)
+old_CFLAGS="$CFLAGS"
+CFLAGS="$CFLAGS -Wno-error -Werror=attributes"
+AC_COMPILE_IFELSE([
+   AC_LANG_SOURCE(
+      [
+         __attribute__((alloc_size(1))) char* my_alloc(int size) { return 0; }
+      ],[]
+   )],
+   AC_DEFINE([HAVE_ATTR_ALLOC_SIZE], 1, [The alloc_size attribute is supported.])
+   AC_MSG_RESULT(yes),
+   AC_MSG_RESULT(no))
+CFLAGS="$old_CFLAGS"
+
 # ----------------------------------------------------------------------
 
 
@@ -168,6 +212,10 @@ if test "$my_htop_platform" = linux; then
    if test "$enable_static" != yes; then
       AC_SEARCH_LIBS([dlopen], [dl dld], [], [AC_MSG_ERROR([can not find required function dlopen()])])
    fi
+fi
+
+if test "$my_htop_platform" = netbsd; then
+   AC_SEARCH_LIBS([kvm_open], [kvm], [], [AC_MSG_ERROR([can not find required function kvm_open()])])
 fi
 
 if test "$my_htop_platform" = openbsd; then
@@ -281,8 +329,9 @@ else
     HTOP_CHECK_SCRIPT([ncurses], [wnoutrefresh], [HAVE_LIBNCURSES], [ncurses5-config],
      HTOP_CHECK_LIB([ncurses6],  [doupdate], [HAVE_LIBNCURSES],
       HTOP_CHECK_LIB([ncurses],  [doupdate], [HAVE_LIBNCURSES],
-       AC_MSG_ERROR([can not find required library libncurses])
-   ))))
+       HTOP_CHECK_LIB([curses],  [doupdate], [HAVE_LIBNCURSES],
+        AC_MSG_ERROR([can not find required curses/ncurses library])
+   )))))
 
    AC_CHECK_HEADERS([curses.h], [],
       [AC_CHECK_HEADERS([ncurses/curses.h], [],
@@ -297,6 +346,13 @@ fi
 if test "$enable_static" = yes; then
    AC_SEARCH_LIBS([Gpm_GetEvent], [gpm])
 fi
+if test "$my_htop_platform" = "solaris"; then
+   # On OmniOS /usr/include/sys/regset.h redefines ERR to 13 - \r, breaking the Enter key.
+   # Since ncruses macros use the ERR macro, we can not use another name.
+   AC_DEFINE([ERR], [(-1)], [Predefine ncurses macro.])
+fi
+AC_CHECK_FUNCS( [set_escdelay] )
+AC_CHECK_FUNCS( [getmouse] )
 
 
 AC_ARG_ENABLE([hwloc],
@@ -315,6 +371,18 @@ case "$enable_hwloc" in
       AC_MSG_ERROR([bad value '$enable_hwloc' for --enable-hwloc])
       ;;
 esac
+
+AC_ARG_WITH([os-release],
+            [AS_HELP_STRING([--with-os-release=FILE],
+                            [location of an os-release file @<:@default=/etc/os-release@:>@])],
+            [],
+            [with_os_release=/etc/os-release])
+if test -n "$with_os_release" && test ! -f "$with_os_release"; then
+   if test -f "/usr/lib/os-release"; then
+      with_os_release="/usr/lib/os-release"
+   fi
+fi
+AC_DEFINE_UNQUOTED([OSRELEASEFILE], ["$with_os_release"], [File with OS release details.])
 
 # ----------------------------------------------------------------------
 
@@ -432,7 +500,9 @@ case "$enable_delayacct" in
    no)
       ;;
    check)
-      if test "$enable_static" = yes; then
+      if test "$my_htop_platform" != linux; then
+         enable_delayacct=no
+      elif test "$enable_static" = yes; then
          enable_delayacct=no
       else
          m4_ifdef([PKG_PROG_PKG_CONFIG], [
@@ -496,6 +566,9 @@ case "$enable_sensors" in
       AC_MSG_ERROR([bad value '$enable_sensors' for --enable-sensors])
       ;;
 esac
+if test "$enable_sensors" = yes || test "$my_htop_platform" = freebsd; then
+   AC_DEFINE([BUILD_WITH_CPU_TEMP], [1], [Define if CPU temperature option should be enabled.])
+fi
 
 # ----------------------------------------------------------------------
 
@@ -582,9 +655,11 @@ AC_DEFINE_UNQUOTED([COPYRIGHT], ["(C) 2004-2019 Hisham Muhammad. (C) 2020-2021 h
 AM_CONDITIONAL([HTOP_LINUX], [test "$my_htop_platform" = linux])
 AM_CONDITIONAL([HTOP_FREEBSD], [test "$my_htop_platform" = freebsd])
 AM_CONDITIONAL([HTOP_DRAGONFLYBSD], [test "$my_htop_platform" = dragonflybsd])
+AM_CONDITIONAL([HTOP_NETBSD], [test "$my_htop_platform" = netbsd])
 AM_CONDITIONAL([HTOP_OPENBSD], [test "$my_htop_platform" = openbsd])
 AM_CONDITIONAL([HTOP_DARWIN], [test "$my_htop_platform" = darwin])
 AM_CONDITIONAL([HTOP_SOLARIS], [test "$my_htop_platform" = solaris])
+AM_CONDITIONAL([HTOP_PCP], [test "$my_htop_platform" = pcp])
 AM_CONDITIONAL([HTOP_UNSUPPORTED], [test "$my_htop_platform" = unsupported])
 
 AC_SUBST(my_htop_platform)
@@ -608,6 +683,7 @@ AC_MSG_RESULT([
   ${PACKAGE_NAME} ${VERSION}
 
   platform:                  $my_htop_platform
+  os-release file:           $with_os_release
   (Linux) proc directory:    $with_proc
   (Linux) openvz:            $enable_openvz
   (Linux) vserver:           $enable_vserver

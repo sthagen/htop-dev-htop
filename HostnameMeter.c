@@ -9,19 +9,17 @@ in the source distribution for its full text.
 
 #include "HostnameMeter.h"
 
-#include <unistd.h>
-
 #include "CRT.h"
 #include "Object.h"
+#include "Platform.h"
 
 
 static const int HostnameMeter_attributes[] = {
    HOSTNAME
 };
 
-static void HostnameMeter_updateValues(Meter* this, char* buffer, size_t size) {
-   (void) this;
-   gethostname(buffer, size - 1);
+static void HostnameMeter_updateValues(Meter* this) {
+   Platform_getHostname(this->txtBuffer, sizeof(this->txtBuffer));
 }
 
 const MeterClass HostnameMeter_class = {

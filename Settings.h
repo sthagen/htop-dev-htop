@@ -41,7 +41,7 @@ typedef struct Settings_ {
    bool detailedCPUTime;
    bool showCPUUsage;
    bool showCPUFrequency;
-   #ifdef HAVE_SENSORS_SENSORS_H
+   #ifdef BUILD_WITH_CPU_TEMP
    bool showCPUTemperature;
    bool degreeFahrenheit;
    #endif
@@ -54,6 +54,7 @@ typedef struct Settings_ {
    bool hideKernelThreads;
    bool hideUserlandThreads;
    bool highlightBaseName;
+   bool highlightDeletedExe;
    bool highlightMegabytes;
    bool highlightThreads;
    bool highlightChanges;
@@ -64,7 +65,9 @@ typedef struct Settings_ {
    bool updateProcessNames;
    bool accountGuestInCPUMeter;
    bool headerMargin;
+   #ifdef HAVE_GETMOUSE
    bool enableMouse;
+   #endif
    int hideFunctionBar;  // 0 - off, 1 - on ESC until next input, 2 - permanently
    #ifdef HAVE_LIBHWLOC
    bool topologyAffinity;
@@ -87,12 +90,16 @@ static inline int Settings_getActiveDirection(const Settings* this) {
 
 void Settings_delete(Settings* this);
 
-bool Settings_write(Settings* this);
+int Settings_write(const Settings* this, bool onCrash);
 
-Settings* Settings_new(int initialCpuCount);
+Settings* Settings_new(unsigned int initialCpuCount);
 
 void Settings_invertSortOrder(Settings* this);
 
 void Settings_setSortKey(Settings* this, ProcessField sortKey);
+
+void Settings_enableReadonly(void);
+
+bool Settings_isReadonly(void);
 
 #endif

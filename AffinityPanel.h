@@ -7,9 +7,10 @@ Released under the GNU GPLv2, see the COPYING file
 in the source distribution for its full text.
 */
 
-#include "Panel.h"
 #include "Affinity.h"
+#include "Panel.h"
 #include "ProcessList.h"
+
 
 extern const PanelClass AffinityPanel_class;
 

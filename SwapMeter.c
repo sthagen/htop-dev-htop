@@ -5,7 +5,12 @@ Released under the GNU GPLv2, see the COPYING file
 in the source distribution for its full text.
 */
 
+#include "config.h" // IWYU pragma: keep
+
 #include "SwapMeter.h"
+
+#include <math.h>
+#include <stddef.h>
 
 #include "CRT.h"
 #include "Object.h"
@@ -18,8 +23,12 @@ static const int SwapMeter_attributes[] = {
    SWAP_CACHE
 };
 
-static void SwapMeter_updateValues(Meter* this, char* buffer, size_t size) {
+static void SwapMeter_updateValues(Meter* this) {
+   char* buffer = this->txtBuffer;
+   size_t size = sizeof(this->txtBuffer);
    int written;
+
+   this->values[1] = NAN;   /* 'cached' not present on all platforms */
    Platform_setSwapValues(this);
 
    written = Meter_humanUnit(buffer, this->values[0], size);
@@ -40,11 +49,11 @@ static void SwapMeter_display(const Object* cast, RichString* out) {
    RichString_appendAscii(out, CRT_colors[METER_TEXT], " used:");
    RichString_appendAscii(out, CRT_colors[METER_VALUE], buffer);
 
-#ifdef HTOP_LINUX
-   Meter_humanUnit(buffer, this->values[1], sizeof(buffer));
-   RichString_appendAscii(out, CRT_colors[METER_TEXT], " cache:");
-   RichString_appendAscii(out, CRT_colors[SWAP_CACHE], buffer);
-#endif
+   if (!isnan(this->values[1])) {
+      Meter_humanUnit(buffer, this->values[1], sizeof(buffer));
+      RichString_appendAscii(out, CRT_colors[METER_TEXT], " cache:");
+      RichString_appendAscii(out, CRT_colors[SWAP_CACHE], buffer);
+   }
 }
 
 const MeterClass SwapMeter_class = {

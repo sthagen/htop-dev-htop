@@ -12,6 +12,7 @@ in the source distribution for its full text.
 #include "Settings.h"
 #include "Vector.h"
 
+
 typedef struct Header_ {
    Vector** columns;
    Settings* settings;
@@ -31,11 +32,11 @@ void Header_populateFromSettings(Header* this);
 
 void Header_writeBackToSettings(const Header* this);
 
-MeterModeId Header_addMeterByName(Header* this, const char* name, int column);
+bool Header_addMeterByName(Header* this, const char* name, int column);
 
 void Header_setMode(Header* this, int i, MeterModeId mode, int column);
 
-Meter* Header_addMeterByClass(Header* this, const MeterClass* type, int param, int column);
+Meter* Header_addMeterByClass(Header* this, const MeterClass* type, unsigned int param, int column);
 
 int Header_size(const Header* this, int column);
 
@@ -44,6 +45,8 @@ MeterModeId Header_readMeterMode(const Header* this, int i, int column);
 void Header_reinit(Header* this);
 
 void Header_draw(const Header* this);
+
+void Header_updateData(Header* this);
 
 int Header_calculateHeight(Header* this);
 

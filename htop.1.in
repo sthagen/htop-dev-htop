@@ -14,7 +14,7 @@ but allows you to scroll vertically and horizontally, and interact using
 a pointing device (mouse).
 You can observe all processes running on the system, along with their
 command line arguments, as well as view them in a tree format, select
-multiple processes and acting on them all at once.
+multiple processes and act on them all at once.
 .LP
 Tasks related to processes (killing, renicing) can be done without
 entering their PIDs.
@@ -23,8 +23,8 @@ entering their PIDs.
 Mandatory arguments to long options are mandatory for short options too.
 .TP
 \fB\-d \-\-delay=DELAY\fR
-Delay between updates, in tenths of seconds. If the delay value is
-less than 1 it is increased to 1, i.e. 1/10 second. If the delay value
+Delay between updates, in tenths of a second. If the delay value is
+less than 1, it is increased to 1, i.e. 1/10 second. If the delay value
 is greater than 100, it is decreased to 100, i.e. 10 seconds.
 .TP
 \fB\-C \-\-no-color \-\-no-colour\fR
@@ -54,6 +54,9 @@ Do not use unicode but ASCII characters for graph meters
 \fB\-M \-\-no-mouse\fR
 Disable support of mouse control
 .TP
+\fB\-\-readonly\fR
+Disable all system and process changing features
+.TP
 \fB\-V \-\-version
 Output version information and exit
 .TP
@@ -64,7 +67,7 @@ requesting a sort order with -s.
 \fB\-H \-\-highlight-changes=DELAY\fR
 Highlight new and old processes
 .TP
-\fB   \-\-drop-capabilities[=none|basic|strict]\fR
+\fB   \-\-drop-capabilities[=off|basic|strict]\fR
 Linux only; requires libcap support.
 .br
 Drop unneeded Linux capabilities.
@@ -251,10 +254,14 @@ shown in
 main screen, it is shown below in parenthesis.
 .TP 5
 .B Command
-The full command line of the process (i.e. program name and arguments). If the
-option 'Merge exe, comm and cmdline in Command' (toggled by the 'm' key) is set,
-and if readable, the executable path (/proc/[pid]/exe) and the command name
-(/proc/[pid]/comm) are also shown merged with the command line.
+The full command line of the process (i.e. program name and arguments).
+
+If the option 'Merge exe, comm and cmdline in Command' (toggled by the 'm' key)
+is active, the executable path (/proc/[pid]/exe) and the command name
+(/proc/[pid]/comm) are also shown merged with the command line, if available.
+
+The program basename is highlighted if set in the configuration. Additional
+highlighting can be configured for stale executables (cf. Exe column below).
 .TP
 .B Comm
 The command name of the process obtained from /proc/[pid]/comm, if readable.
@@ -263,6 +270,10 @@ The command name of the process obtained from /proc/[pid]/comm, if readable.
 The abbreviated basename of the executable of the process, obtained from
 /proc/[pid]/exe, if readable. htop is able to read this file on linux for ALL
 the processes only if it has the capability CAP_SYS_PTRACE or root privileges.
+
+The basename is marked in red if the executable used to run the process has
+been replaced or deleted on disk since the process started. This additional
+markup can be configured.
 .TP
 .B PID
 The process ID.
@@ -285,7 +296,7 @@ The process's group ID.
 .B SESSION (SID)
 The process's session ID.
 .TP
-.B TTY_NR (TTY)
+.B TTY
 The controlling terminal of the process.
 .TP
 .B TPGID
@@ -376,6 +387,15 @@ The user ID of the process owner.
 .TP
 .B PERCENT_CPU (CPU%)
 The percentage of the CPU time that the process is currently using.
+This is the default way to represent CPU usage in Linux. Each process can
+consume up to 100% which means the full capacity of the core it is running
+on. This is sometimes called "Irix mode" e.g. in
+.BR top (1).
+.TP
+.B PERCENT_NORM_CPU (NCPU%)
+The percentage of the CPU time that the process is currently using normalized
+by CPU count. This is sometimes called "Solaris mode" e.g. in
+.BR top (1).
 .TP
 .B PERCENT_MEM (MEM%)
 The percentage of memory the process is currently using (based on the process's

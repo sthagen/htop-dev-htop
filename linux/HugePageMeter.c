@@ -5,18 +5,22 @@ Released under the GNU GPLv2, see the COPYING file
 in the source distribution for its full text.
 */
 
-#include "HugePageMeter.h"
+#include "linux/HugePageMeter.h"
 
-#include "LinuxProcessList.h"
-
+#include <assert.h>
 #include <limits.h>
 #include <math.h>
+#include <stddef.h>
 
 #include "CRT.h"
+#include "Macros.h"
 #include "Object.h"
+#include "ProcessList.h"
 #include "RichString.h"
+#include "linux/LinuxProcessList.h"
 
-static const char *HugePageMeter_active_labels[4] = { NULL, NULL, NULL, NULL };
+
+static const char* HugePageMeter_active_labels[4] = { NULL, NULL, NULL, NULL };
 
 static const int HugePageMeter_attributes[] = {
    HUGEPAGE_1,
@@ -31,9 +35,11 @@ static const char* const HugePageMeter_labels[] = {
    " 1G:", " 2G:", " 4G:", " 8G:", " 16G:", " 32G:", " 64G:", " 128G:", " 256G:", " 512G:",
 };
 
-static void HugePageMeter_updateValues(Meter* this, char* buffer, size_t size) {
+static void HugePageMeter_updateValues(Meter* this) {
    assert(ARRAYSIZE(HugePageMeter_labels) == HTOP_HUGEPAGE_COUNT);
 
+   char* buffer = this->txtBuffer;
+   size_t size = sizeof(this->txtBuffer);
    int written;
    memory_t usedTotal = 0;
    unsigned nextUsed = 0;
