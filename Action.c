@@ -13,9 +13,10 @@ in the source distribution for its full text.
 #include <stdbool.h>
 #include <stdlib.h>
 
+#include "CRT.h"
 #include "CategoriesPanel.h"
 #include "CommandScreen.h"
-#include "CRT.h"
+#include "DynamicColumn.h"
 #include "EnvScreen.h"
 #include "FunctionBar.h"
 #include "Hashtable.h"
@@ -34,7 +35,7 @@ in the source distribution for its full text.
 #include "Vector.h"
 #include "XUtils.h"
 
-#if (defined(HAVE_LIBHWLOC) || defined(HAVE_LINUX_AFFINITY))
+#if (defined(HAVE_LIBHWLOC) || defined(HAVE_AFFINITY))
 #include "Affinity.h"
 #include "AffinityPanel.h"
 #endif
@@ -47,7 +48,7 @@ Object* Action_pickFromVector(State* st, Panel* list, int x, bool followProcess)
    int y = ((Panel*)mainPanel)->y;
    ScreenManager* scr = ScreenManager_new(header, st->settings, st, false);
    scr->allowFocusChange = false;
-   ScreenManager_add(scr, list, x - 1);
+   ScreenManager_add(scr, list, x);
    ScreenManager_add(scr, (Panel*)mainPanel, -1);
    Panel* panelFocus;
    int ch;
@@ -83,12 +84,8 @@ Object* Action_pickFromVector(State* st, Panel* list, int x, bool followProcess)
 
 static void Action_runSetup(State* st) {
    ScreenManager* scr = ScreenManager_new(st->header, st->settings, st, true);
-   CategoriesPanel* panelCategories = CategoriesPanel_new(scr, st->settings, st->header, st->pl);
-   ScreenManager_add(scr, (Panel*) panelCategories, 16);
-   CategoriesPanel_makeMetersPage(panelCategories);
-   Panel* panelFocus;
-   int ch;
-   ScreenManager_run(scr, &panelFocus, &ch);
+   CategoriesPanel_new(scr, st->settings, st->header, st->pl);
+   ScreenManager_run(scr, NULL, NULL);
    ScreenManager_delete(scr);
    if (st->settings->changed) {
       Header_writeBackToSettings(st->header);
@@ -168,15 +165,24 @@ static Htop_Reaction actionSetSortColumn(State* st) {
    Panel* sortPanel = Panel_new(0, 0, 0, 0, Class(ListItem), true, FunctionBar_newEnterEsc("Sort   ", "Cancel "));
    Panel_setHeader(sortPanel, "Sort by");
    const ProcessField* fields = st->settings->fields;
+   Hashtable* dynamicColumns = st->settings->dynamicColumns;
    for (int i = 0; fields[i]; i++) {
-      char* name = String_trim(Process_fields[fields[i]].name);
+      char* name = NULL;
+      if (fields[i] >= LAST_PROCESSFIELD) {
+         DynamicColumn* column = Hashtable_get(dynamicColumns, fields[i]);
+         if (!column)
+            continue;
+         name = xStrdup(column->caption ? column->caption : column->name);
+      } else {
+         name = String_trim(Process_fields[fields[i]].name);
+      }
       Panel_add(sortPanel, (Object*) ListItem_new(name, fields[i]));
       if (fields[i] == Settings_getActiveSortKey(st->settings))
          Panel_setSelected(sortPanel, i);
 
       free(name);
    }
-   const ListItem* field = (const ListItem*) Action_pickFromVector(st, sortPanel, 15, false);
+   const ListItem* field = (const ListItem*) Action_pickFromVector(st, sortPanel, 14, false);
    if (field) {
       reaction |= Action_setSortKey(st->settings, field->key);
    }
@@ -302,10 +308,10 @@ static Htop_Reaction actionSetAffinity(State* st) {
    if (Settings_isReadonly())
       return HTOP_OK;
 
-   if (st->pl->cpuCount == 1)
+   if (st->pl->activeCPUs == 1)
       return HTOP_OK;
 
-#if (defined(HAVE_LIBHWLOC) || defined(HAVE_LINUX_AFFINITY))
+#if (defined(HAVE_LIBHWLOC) || defined(HAVE_AFFINITY))
    const Process* p = (const Process*) Panel_getSelected((Panel*)st->mainPanel);
    if (!p)
       return HTOP_OK;
@@ -316,7 +322,6 @@ static Htop_Reaction actionSetAffinity(State* st) {
 
    int width;
    Panel* affinityPanel = AffinityPanel_new(st->pl, affinity1, &width);
-   width += 1; /* we add a gap between the panels */
    Affinity_delete(affinity1);
 
    const void* set = Action_pickFromVector(st, affinityPanel, width, true);
@@ -328,8 +333,11 @@ static Htop_Reaction actionSetAffinity(State* st) {
       Affinity_delete(affinity2);
    }
    Object_delete(affinityPanel);
-#endif
    return HTOP_REFRESH | HTOP_REDRAW_BAR | HTOP_UPDATE_PANELHDR;
+#else
+   return HTOP_OK;
+#endif
+
 }
 
 static Htop_Reaction actionKill(State* st) {
@@ -337,7 +345,7 @@ static Htop_Reaction actionKill(State* st) {
       return HTOP_OK;
 
    Panel* signalsPanel = SignalsPanel_new();
-   const ListItem* sgn = (ListItem*) Action_pickFromVector(st, signalsPanel, 15, true);
+   const ListItem* sgn = (ListItem*) Action_pickFromVector(st, signalsPanel, 14, true);
    if (sgn && sgn->key != 0) {
       Panel_setHeader((Panel*)st->mainPanel, "Sending...");
       Panel_draw((Panel*)st->mainPanel, false, true, true, State_hideFunctionBar(st));
@@ -356,7 +364,7 @@ static Htop_Reaction actionFilterByUser(State* st) {
    Vector_insertionSort(usersPanel->items);
    ListItem* allUsers = ListItem_new("All users", -1);
    Panel_insert(usersPanel, 0, (Object*) allUsers);
-   const ListItem* picked = (ListItem*) Action_pickFromVector(st, usersPanel, 20, false);
+   const ListItem* picked = (ListItem*) Action_pickFromVector(st, usersPanel, 19, false);
    if (picked) {
       if (picked == allUsers) {
          st->pl->userId = (uid_t)-1;
@@ -376,10 +384,7 @@ Htop_Reaction Action_follow(State* st) {
 
 static Htop_Reaction actionSetup(State* st) {
    Action_runSetup(st);
-   int headerHeight = Header_calculateHeight(st->header);
-   Panel_move((Panel*)st->mainPanel, 0, headerHeight);
-   Panel_resize((Panel*)st->mainPanel, COLS, LINES - headerHeight - 1);
-   return HTOP_REFRESH | HTOP_REDRAW_BAR | HTOP_UPDATE_PANELHDR;
+   return HTOP_REFRESH | HTOP_REDRAW_BAR | HTOP_UPDATE_PANELHDR | HTOP_RESIZE;
 }
 
 static Htop_Reaction actionLsof(State* st) {
@@ -484,7 +489,7 @@ static const struct {
    { .key = "   F9 k: ", .roInactive = true,  .info = "kill process/tagged processes" },
    { .key = "   F7 ]: ", .roInactive = true,  .info = "higher priority (root only)" },
    { .key = "   F8 [: ", .roInactive = false, .info = "lower priority (+ nice)" },
-#if (defined(HAVE_LIBHWLOC) || defined(HAVE_LINUX_AFFINITY))
+#if (defined(HAVE_LIBHWLOC) || defined(HAVE_AFFINITY))
    { .key = "      a: ", .roInactive = true, .info = "set CPU affinity" },
 #endif
    { .key = "      e: ", .roInactive = false, .info = "show process environment" },
@@ -535,8 +540,8 @@ static Htop_Reaction actionHelp(State* st) {
       addattrstr(CRT_colors[CPU_NICE_TEXT], "low-priority"); addstr("/");
       addattrstr(CRT_colors[CPU_NORMAL], "normal"); addstr("/");
       addattrstr(CRT_colors[CPU_SYSTEM], "kernel"); addstr("/");
-      addattrstr(CRT_colors[CPU_GUEST], "virtualiz");
-      addattrstr(CRT_colors[BAR_SHADOW], "               used%");
+      addattrstr(CRT_colors[CPU_GUEST], "virtualized");
+      addattrstr(CRT_colors[BAR_SHADOW], "             used%");
    }
    addattrstr(CRT_colors[BAR_BORDER], "]");
    attrset(CRT_colors[DEFAULT_COLOR]);

@@ -24,6 +24,7 @@ in the source distribution for its full text.
 #include "Meter.h"
 #include "CPUMeter.h"
 #include "MemoryMeter.h"
+#include "MemorySwapMeter.h"
 #include "SwapMeter.h"
 #include "TasksMeter.h"
 #include "LoadAverageMeter.h"
@@ -97,6 +98,7 @@ const MeterClass* const Platform_meterTypes[] = {
    &LoadMeter_class,
    &MemoryMeter_class,
    &SwapMeter_class,
+   &MemorySwapMeter_class,
    &TasksMeter_class,
    &BatteryMeter_class,
    &HostnameMeter_class,
@@ -184,7 +186,7 @@ int Platform_getMaxPid() {
 
 double Platform_setCPUValues(Meter* this, unsigned int cpu) {
    const SolarisProcessList* spl = (const SolarisProcessList*) this->pl;
-   unsigned int cpus = this->pl->cpuCount;
+   unsigned int cpus = this->pl->existingCPUs;
    const CPUData* cpuData = NULL;
 
    if (cpus == 1) {
@@ -192,6 +194,11 @@ double Platform_setCPUValues(Meter* this, unsigned int cpu) {
       cpuData = &(spl->cpus[0]);
    } else {
       cpuData = &(spl->cpus[cpu]);
+   }
+
+   if (!cpuData->online) {
+      this->curItems = 0;
+      return NAN;
    }
 
    double percent;

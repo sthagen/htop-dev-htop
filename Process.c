@@ -26,6 +26,7 @@ in the source distribution for its full text.
 #include "Macros.h"
 #include "Platform.h"
 #include "ProcessList.h"
+#include "DynamicColumn.h"
 #include "RichString.h"
 #include "Settings.h"
 #include "XUtils.h"
@@ -390,6 +391,7 @@ void Process_makeCommandStr(Process* this) {
    bool showProgramPath = settings->showProgramPath;
    bool searchCommInCmdline = settings->findCommInCmdline;
    bool stripExeFromCmdline = settings->stripExeFromCmdline;
+   bool showThreadNames = settings->showThreadNames;
 
    /* Nothing to do to (Re)Generate the Command string, if the process is:
     * - a kernel thread, or
@@ -399,7 +401,7 @@ void Process_makeCommandStr(Process* this) {
       return;
    if (this->state == 'Z' && !this->mergedCommand.str)
       return;
-   if (Process_isUserlandThread(this) && settings->showThreadNames)
+   if (Process_isUserlandThread(this) && settings->showThreadNames && (showThreadNames == mc->prevShowThreadNames))
       return;
 
    /* this->mergedCommand.str needs updating only if its state or contents changed.
@@ -409,6 +411,7 @@ void Process_makeCommandStr(Process* this) {
       mc->prevPathSet == showProgramPath &&
       mc->prevCommSet == searchCommInCmdline &&
       mc->prevCmdlineSet == stripExeFromCmdline &&
+      mc->prevShowThreadNames == showThreadNames &&
       !mc->cmdlineChanged &&
       !mc->commChanged &&
       !mc->exeChanged
@@ -438,6 +441,7 @@ void Process_makeCommandStr(Process* this) {
    mc->prevPathSet = showProgramPath;
    mc->prevCommSet = searchCommInCmdline;
    mc->prevCmdlineSet = stripExeFromCmdline;
+   mc->prevShowThreadNames = showThreadNames;
 
    /* Mark everything as unchanged */
    mc->cmdlineChanged = false;
@@ -454,7 +458,7 @@ void Process_makeCommandStr(Process* this) {
          /* Check if we still have capacity */                                                \
          assert(mc->highlightCount < ARRAYSIZE(mc->highlights));                              \
          if (mc->highlightCount >= ARRAYSIZE(mc->highlights))                                 \
-            continue;                                                                         \
+            break;                                                                            \
                                                                                               \
          mc->highlights[mc->highlightCount].offset = str - strStart + (_offset) - mbMismatch; \
          mc->highlights[mc->highlightCount].length = _length;                                 \
@@ -496,7 +500,7 @@ void Process_makeCommandStr(Process* this) {
    assert(cmdlineBasenameStart <= (int)strlen(cmdline));
 
    if (!showMergedCommand || !procExe || !procComm) { /* fall back to cmdline */
-      if (showMergedCommand && !procExe && procComm && strlen(procComm)) { /* Prefix column with comm */
+      if (showMergedCommand && (!Process_isUserlandThread(this) || showThreadNames) && !procExe && procComm && strlen(procComm)) { /* Prefix column with comm */
          if (strncmp(cmdline + cmdlineBasenameStart, procComm, MINIMUM(TASK_COMM_LEN - 1, strlen(procComm))) != 0) {
             WRITE_HIGHLIGHT(0, strlen(procComm), commAttr, CMDLINE_HIGHLIGHT_FLAG_COMM);
             str = stpcpy(str, procComm);
@@ -520,7 +524,7 @@ void Process_makeCommandStr(Process* this) {
    assert(exeBasenameOffset <= (int)strlen(procExe));
 
    bool haveCommInExe = false;
-   if (procExe && procComm) {
+   if (procExe && procComm && (!Process_isUserlandThread(this) || showThreadNames)) {
       haveCommInExe = strncmp(procExe + exeBasenameOffset, procComm, TASK_COMM_LEN - 1) == 0;
    }
 
@@ -552,14 +556,14 @@ void Process_makeCommandStr(Process* this) {
    /* Try to match procComm with procExe's basename: This is reliable (predictable) */
    if (searchCommInCmdline) {
       /* commStart/commEnd will be adjusted later along with cmdline */
-      haveCommInCmdline = findCommInCmdline(procComm, cmdline, cmdlineBasenameStart, &commStart, &commEnd);
+      haveCommInCmdline = (!Process_isUserlandThread(this) || showThreadNames) && findCommInCmdline(procComm, cmdline, cmdlineBasenameStart, &commStart, &commEnd);
    }
 
    int matchLen = matchCmdlinePrefixWithExeSuffix(cmdline, cmdlineBasenameStart, procExe, exeBasenameOffset, exeBasenameLen);
 
    bool haveCommField = false;
 
-   if (!haveCommInExe && !haveCommInCmdline && procComm) {
+   if (!haveCommInExe && !haveCommInCmdline && procComm && (!Process_isUserlandThread(this) || showThreadNames)) {
       WRITE_SEPARATOR;
       WRITE_HIGHLIGHT(0, strlen(procComm), commAttr, CMDLINE_HIGHLIGHT_FLAG_COMM);
       str = stpcpy(str, procComm);
@@ -579,7 +583,7 @@ void Process_makeCommandStr(Process* this) {
       WRITE_SEPARATOR;
    }
 
-   if (!haveCommInExe && haveCommInCmdline && !haveCommField)
+   if (!haveCommInExe && haveCommInCmdline && !haveCommField && (!Process_isUserlandThread(this) || showThreadNames))
       WRITE_HIGHLIGHT(commStart, commEnd - commStart, commAttr, CMDLINE_HIGHLIGHT_FLAG_COMM);
 
    /* Display cmdline if it hasn't been consumed by procExe */
@@ -821,7 +825,7 @@ void Process_writeField(const Process* this, RichString* str, ProcessField field
    case PERCENT_NORM_CPU: {
       float cpuPercentage = this->percent_cpu;
       if (field == PERCENT_NORM_CPU) {
-         cpuPercentage /= this->processList->cpuCount;
+         cpuPercentage /= this->processList->activeCPUs;
       }
       if (cpuPercentage > 999.9F) {
          xSnprintf(buffer, n, "%4u ", (unsigned int)cpuPercentage);
@@ -902,8 +906,11 @@ void Process_writeField(const Process* this, RichString* str, ProcessField field
       xSnprintf(buffer, n, "%-9d ", this->st_uid);
       break;
    default:
+      if (DynamicColumn_writeField(this, str, field))
+         return;
       assert(0 && "Process_writeField: default key reached"); /* should never be reached */
       xSnprintf(buffer, n, "- ");
+      break;
    }
    RichString_appendAscii(str, attr, buffer);
 }

@@ -14,8 +14,10 @@ in the source distribution for its full text.
 #include "CPUMeter.h"
 #include "DynamicMeter.h"
 #include "FunctionBar.h"
+#include "Hashtable.h"
 #include "Header.h"
 #include "ListItem.h"
+#include "Macros.h"
 #include "Meter.h"
 #include "MetersPanel.h"
 #include "Object.h"
@@ -28,14 +30,15 @@ static void AvailableMetersPanel_delete(Object* object) {
    Panel* super = (Panel*) object;
    AvailableMetersPanel* this = (AvailableMetersPanel*) object;
    Panel_done(super);
+   free(this->meterPanels);
    free(this);
 }
 
-static inline void AvailableMetersPanel_addMeter(Header* header, Panel* panel, const MeterClass* type, unsigned int param, int column) {
+static inline void AvailableMetersPanel_addMeter(Header* header, MetersPanel* panel, const MeterClass* type, unsigned int param, size_t column) {
    const Meter* meter = Header_addMeterByClass(header, type, param, column);
-   Panel_add(panel, (Object*) Meter_toListItem(meter, false));
-   Panel_setSelected(panel, Panel_size(panel) - 1);
-   MetersPanel_setMoving((MetersPanel*)panel, true);
+   Panel_add((Panel*)panel, (Object*) Meter_toListItem(meter, false));
+   Panel_setSelected((Panel*)panel, Panel_size((Panel*)panel) - 1);
+   MetersPanel_setMoving(panel, true);
 }
 
 static HandlerResult AvailableMetersPanel_eventHandler(Panel* super, int ch) {
@@ -56,7 +59,7 @@ static HandlerResult AvailableMetersPanel_eventHandler(Panel* super, int ch) {
       case 'l':
       case 'L':
       {
-         AvailableMetersPanel_addMeter(header, this->leftPanel, Platform_meterTypes[type], param, 0);
+         AvailableMetersPanel_addMeter(header, this->meterPanels[0], Platform_meterTypes[type], param, 0);
          result = HANDLED;
          update = true;
          break;
@@ -68,7 +71,7 @@ static HandlerResult AvailableMetersPanel_eventHandler(Panel* super, int ch) {
       case 'r':
       case 'R':
       {
-         AvailableMetersPanel_addMeter(header, this->rightPanel, Platform_meterTypes[type], param, 1);
+         AvailableMetersPanel_addMeter(header, this->meterPanels[this->columns - 1], Platform_meterTypes[type], param, this->columns - 1);
          result = (KEY_LEFT << 16) | SYNTH_KEY;
          update = true;
          break;
@@ -79,7 +82,7 @@ static HandlerResult AvailableMetersPanel_eventHandler(Panel* super, int ch) {
       Header_calculateHeight(header);
       Header_updateData(header);
       Header_draw(header);
-      ScreenManager_resize(this->scr, this->scr->x1, header->height, this->scr->x2, this->scr->y2);
+      ScreenManager_resize(this->scr);
    }
    return result;
 }
@@ -94,9 +97,9 @@ const PanelClass AvailableMetersPanel_class = {
 
 // Handle (&CPUMeter_class) entries in the AvailableMetersPanel
 static void AvailableMetersPanel_addCPUMeters(Panel* super, const MeterClass* type, const ProcessList* pl) {
-   if (pl->cpuCount > 1) {
+   if (pl->existingCPUs > 1) {
       Panel_add(super, (Object*) ListItem_new("CPU average", 0));
-      for (unsigned int i = 1; i <= pl->cpuCount; i++) {
+      for (unsigned int i = 1; i <= pl->existingCPUs; i++) {
          char buffer[50];
          xSnprintf(buffer, sizeof(buffer), "%s %d", type->uiName, Settings_cpuId(pl->settings, i - 1));
          Panel_add(super, (Object*) ListItem_new(buffer, i));
@@ -136,7 +139,7 @@ static void AvailableMetersPanel_addPlatformMeter(Panel* super, const MeterClass
    Panel_add(super, (Object*) ListItem_new(label, offset << 16));
 }
 
-AvailableMetersPanel* AvailableMetersPanel_new(Settings* settings, Header* header, Panel* leftMeters, Panel* rightMeters, ScreenManager* scr, const ProcessList* pl) {
+AvailableMetersPanel* AvailableMetersPanel_new(Settings* settings, Header* header, size_t columns, MetersPanel** meterPanels, ScreenManager* scr, const ProcessList* pl) {
    AvailableMetersPanel* this = AllocThis(AvailableMetersPanel);
    Panel* super = (Panel*) this;
    FunctionBar* fuBar = FunctionBar_newEnterEsc("Add   ", "Done   ");
@@ -144,8 +147,8 @@ AvailableMetersPanel* AvailableMetersPanel_new(Settings* settings, Header* heade
 
    this->settings = settings;
    this->header = header;
-   this->leftPanel = leftMeters;
-   this->rightPanel = rightMeters;
+   this->columns = columns;
+   this->meterPanels = meterPanels;
    this->scr = scr;
 
    Panel_setHeader(super, "Available meters");

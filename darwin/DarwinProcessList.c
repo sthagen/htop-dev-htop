@@ -128,13 +128,15 @@ static struct kinfo_proc* ProcessList_getKInfoProcs(size_t* count) {
    CRT_fatalError("Unable to get kinfo_procs");
 }
 
-ProcessList* ProcessList_new(UsersTable* usersTable, Hashtable* dynamicMeters, Hashtable* pidMatchList, uid_t userId) {
+ProcessList* ProcessList_new(UsersTable* usersTable, Hashtable* dynamicMeters, Hashtable* dynamicColumns, Hashtable* pidMatchList, uid_t userId) {
    DarwinProcessList* this = xCalloc(1, sizeof(DarwinProcessList));
 
-   ProcessList_init(&this->super, Class(DarwinProcess), usersTable, dynamicMeters, pidMatchList, userId);
+   ProcessList_init(&this->super, Class(DarwinProcess), usersTable, dynamicMeters, dynamicColumns, pidMatchList, userId);
 
    /* Initialize the CPU information */
-   this->super.cpuCount = ProcessList_allocateCPULoadInfo(&this->prev_load);
+   this->super.activeCPUs = ProcessList_allocateCPULoadInfo(&this->prev_load);
+   // TODO: support offline CPUs and hot swapping
+   this->super.existingCPUs = this->super.activeCPUs;
    ProcessList_getHostInfo(&this->host_info);
    ProcessList_allocateCPULoadInfo(&this->curr_load);
 
@@ -158,11 +160,6 @@ void ProcessList_delete(ProcessList* this) {
    free(this);
 }
 
-static double ticksToNanoseconds(const double ticks) {
-   const double nanos_per_sec = 1e9;
-   return (ticks / Platform_timebaseToNS) * (nanos_per_sec / (double) Platform_clockTicksPerSec);
-}
-
 void ProcessList_goThroughEntries(ProcessList* super, bool pauseProcessUpdate) {
    DarwinProcessList* dpl = (DarwinProcessList*)super;
    bool preExisting = true;
@@ -184,13 +181,13 @@ void ProcessList_goThroughEntries(ProcessList* super, bool pauseProcessUpdate) {
 
    /* Get the time difference */
    dpl->global_diff = 0;
-   for (unsigned int i = 0; i < dpl->super.cpuCount; ++i) {
+   for (unsigned int i = 0; i < dpl->super.existingCPUs; ++i) {
       for (size_t j = 0; j < CPU_STATE_MAX; ++j) {
          dpl->global_diff += dpl->curr_load[i].cpu_ticks[j] - dpl->prev_load[i].cpu_ticks[j];
       }
    }
 
-   const double time_interval = ticksToNanoseconds(dpl->global_diff) / (double) dpl->super.cpuCount;
+   const double time_interval_ns = Platform_schedulerTicksToNanoseconds(dpl->global_diff) / (double) dpl->super.activeCPUs;
 
    /* Clear the thread counts */
    super->kernelThreads = 0;
@@ -211,7 +208,7 @@ void ProcessList_goThroughEntries(ProcessList* super, bool pauseProcessUpdate) {
       proc = (DarwinProcess*)ProcessList_getProcess(super, ps[i].kp_proc.p_pid, &preExisting, DarwinProcess_new);
 
       DarwinProcess_setFromKInfoProc(&proc->super, &ps[i], preExisting);
-      DarwinProcess_setFromLibprocPidinfo(proc, dpl, time_interval);
+      DarwinProcess_setFromLibprocPidinfo(proc, dpl, time_interval_ns);
 
       if (proc->super.st_uid != ps[i].kp_eproc.e_ucred.cr_uid) {
          proc->super.st_uid = ps[i].kp_eproc.e_ucred.cr_uid;
@@ -233,4 +230,13 @@ void ProcessList_goThroughEntries(ProcessList* super, bool pauseProcessUpdate) {
    }
 
    free(ps);
+}
+
+bool ProcessList_isCPUonline(const ProcessList* super, unsigned int id) {
+   assert(id < super->existingCPUs);
+
+   // TODO: support offline CPUs and hot swapping
+   (void) super; (void) id;
+
+   return true;
 }

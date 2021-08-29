@@ -28,10 +28,10 @@ static void TasksMeter_updateValues(Meter* this) {
    this->values[0] = pl->kernelThreads;
    this->values[1] = pl->userlandThreads;
    this->values[2] = pl->totalTasks - pl->kernelThreads - pl->userlandThreads;
-   this->values[3] = MINIMUM(pl->runningTasks, pl->cpuCount);
+   this->values[3] = MINIMUM(pl->runningTasks, pl->activeCPUs);
    this->total     = pl->totalTasks;
 
-   xSnprintf(this->txtBuffer, sizeof(this->txtBuffer), "%d/%d", (int) this->values[3], (int) this->total);
+   xSnprintf(this->txtBuffer, sizeof(this->txtBuffer), "%u/%u", MINIMUM(pl->runningTasks, pl->activeCPUs), pl->totalTasks);
 }
 
 static void TasksMeter_display(const Object* cast, RichString* out) {

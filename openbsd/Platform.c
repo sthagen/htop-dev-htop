@@ -32,6 +32,7 @@ in the source distribution for its full text.
 #include "LoadAverageMeter.h"
 #include "Macros.h"
 #include "MemoryMeter.h"
+#include "MemorySwapMeter.h"
 #include "Meter.h"
 #include "ProcessList.h"
 #include "Settings.h"
@@ -98,6 +99,7 @@ const MeterClass* const Platform_meterTypes[] = {
    &LoadMeter_class,
    &MemoryMeter_class,
    &SwapMeter_class,
+   &MemorySwapMeter_class,
    &TasksMeter_class,
    &UptimeMeter_class,
    &BatteryMeter_class,
@@ -169,10 +171,17 @@ int Platform_getMaxPid() {
 
 double Platform_setCPUValues(Meter* this, unsigned int cpu) {
    const OpenBSDProcessList* pl = (const OpenBSDProcessList*) this->pl;
-   const CPUData* cpuData = &(pl->cpus[cpu]);
-   double total = cpuData->totalPeriod == 0 ? 1 : cpuData->totalPeriod;
+   const CPUData* cpuData = &(pl->cpuData[cpu]);
+   double total;
    double totalPercent;
    double* v = this->values;
+
+   if (!cpuData->online) {
+      this->curItems = 0;
+      return NAN;
+   }
+
+   total = cpuData->totalPeriod == 0 ? 1 : cpuData->totalPeriod;
 
    v[CPU_METER_NICE] = cpuData->nicePeriod / total * 100.0;
    v[CPU_METER_NORMAL] = cpuData->userPeriod / total * 100.0;

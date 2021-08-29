@@ -317,7 +317,7 @@ static void GraphMeterMode_draw(Meter* this, int x, int y, int w) {
 
    if (!timercmp(&pl->realtime, &(data->time), <)) {
       int globalDelay = this->pl->settings->delay;
-      struct timeval delay = { .tv_sec = globalDelay / 10, .tv_usec = (globalDelay - ((globalDelay / 10) * 10)) * 100000 };
+      struct timeval delay = { .tv_sec = globalDelay / 10, .tv_usec = (globalDelay % 10) * 100000L };
       timeradd(&pl->realtime, &delay, &(data->time));
 
       for (int i = 0; i < nValues - 1; i++)
@@ -379,7 +379,7 @@ static void LEDMeterMode_drawDigit(int x, int y, int n) {
       mvaddstr(y + i, x, LEDMeterMode_digits[i * 10 + n]);
 }
 
-static void LEDMeterMode_draw(Meter* this, int x, int y, ATTR_UNUSED int w) {
+static void LEDMeterMode_draw(Meter* this, int x, int y, int w) {
 #ifdef HAVE_LIBNCURSESW
    if (CRT_utf8)
       LEDMeterMode_digits = LEDMeterMode_digitsUtf8;
@@ -403,9 +403,14 @@ static void LEDMeterMode_draw(Meter* this, int x, int y, ATTR_UNUSED int w) {
    for (int i = 0; i < len; i++) {
       int c = RichString_getCharVal(out, i);
       if (c >= '0' && c <= '9') {
+         if (xx - x + 4 > w)
+            break;
+
          LEDMeterMode_drawDigit(xx, y, c - '0');
          xx += 4;
       } else {
+         if (xx - x + 1 > w)
+            break;
 #ifdef HAVE_LIBNCURSESW
          const cchar_t wc = { .chars = { c, '\0' }, .attr = 0 }; /* use LED_COLOR from attrset() */
          mvadd_wch(yText, xx, &wc);
