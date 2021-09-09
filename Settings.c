@@ -134,8 +134,9 @@ static void Settings_readFields(Settings* settings, const char* line) {
       }
 
       // Dynamically-defined columns are always stored by-name.
-      char* end, dynamic[32] = {0};
+      char dynamic[32] = {0};
       if (sscanf(ids[i], "Dynamic(%30s)", dynamic)) {
+         char* end;
          if ((end = strrchr(dynamic, ')')) == NULL)
             continue;
          *end = '\0';
@@ -180,8 +181,10 @@ static bool Settings_read(Settings* this, const char* fileName, unsigned int ini
          this->config_version = atoi(option[1]);
          if (this->config_version > CONFIG_READER_MIN_VERSION) {
             // the version of the config file on disk is newer than what we can read
-            fprintf(stderr, "WARNING: %s specifies configuration format version v%d, but this %s binary supports up to v%d.", fileName, this->config_version, PACKAGE, CONFIG_READER_MIN_VERSION);
+            fprintf(stderr, "WARNING: %s specifies configuration format version v%d, but this %s binary supports up to v%d\n.", fileName, this->config_version, PACKAGE, CONFIG_READER_MIN_VERSION);
             fprintf(stderr, "         The configuration version will be downgraded to v%d when %s exits.\n", CONFIG_READER_MIN_VERSION, PACKAGE);
+            String_freeArray(option);
+            fclose(fd);
             return false;
          }
       } else if (String_eq(option[0], "fields")) {
@@ -355,9 +358,9 @@ int Settings_write(const Settings* this, bool onCrash) {
    }
 
    #define printSettingInteger(setting_, value_) \
-      fprintf(fd, setting_ "=%d%c", (int) value_, separator);
+      fprintf(fd, setting_ "=%d%c", (int) (value_), separator)
    #define printSettingString(setting_, value_) \
-      fprintf(fd, setting_ "=%s%c", value_, separator);
+      fprintf(fd, setting_ "=%s%c", value_, separator)
 
    if (!onCrash) {
       fprintf(fd, "# Beware! This file is rewritten by htop when settings are changed in the interface.\n");
@@ -540,6 +543,9 @@ Settings* Settings_new(unsigned int initialCpuCount, Hashtable* dynamicColumns) 
    if (!ok) {
       this->changed = true;
       Settings_read(this, SYSCONFDIR "/htoprc", initialCpuCount);
+   }
+   if (!ok) {
+      Settings_defaultMeters(this, initialCpuCount);
    }
    return this;
 }
