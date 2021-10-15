@@ -1,7 +1,7 @@
 /*
 htop - Panel.c
 (C) 2004-2011 Hisham H. Muhammad
-Released under the GNU GPLv2, see the COPYING file
+Released under the GNU GPLv2+, see the COPYING file
 in the source distribution for its full text.
 */
 
@@ -453,7 +453,7 @@ HandlerResult Panel_selectByTyping(Panel* this, int ch) {
       }
 
       if (len < 99) {
-         buffer[len] = ch;
+         buffer[len] = (char) ch;
          buffer[len + 1] = '\0';
       }
 
@@ -470,7 +470,7 @@ HandlerResult Panel_selectByTyping(Panel* this, int ch) {
 
          // if current word did not match,
          // retry considering the character the start of a new word.
-         buffer[0] = ch;
+         buffer[0] = (char) ch;
          buffer[1] = '\0';
       }
 

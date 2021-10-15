@@ -3,7 +3,7 @@
 /*
 htop - Settings.h
 (C) 2004-2011 Hisham H. Muhammad
-Released under the GNU GPLv2, see the COPYING file
+Released under the GNU GPLv2+, see the COPYING file
 in the source distribution for its full text.
 */
 
@@ -22,7 +22,7 @@ in the source distribution for its full text.
 #define CONFIG_READER_MIN_VERSION 2
 
 typedef struct {
-   uint8_t len;
+   size_t len;
    char** names;
    int* modes;
 } MeterColumnSetting;

@@ -1,7 +1,7 @@
 /*
 htop - MemoryMeter.c
 (C) 2004-2011 Hisham H. Muhammad
-Released under the GNU GPLv2, see the COPYING file
+Released under the GNU GPLv2+, see the COPYING file
 in the source distribution for its full text.
 */
 
@@ -36,7 +36,7 @@ static void MemoryMeter_updateValues(Meter* this) {
    /* Do not print available memory in bar mode */
    this->curItems = 4;
 
-   written = Meter_humanUnit(buffer, isnan(this->values[4]) ? this->values[0] : this->total - this->values[4], size);
+   written = Meter_humanUnit(buffer, this->values[0], size);
    METER_BUFFER_CHECK(buffer, size, written);
 
    METER_BUFFER_APPEND_CHR(buffer, size, '/');

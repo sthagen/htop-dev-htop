@@ -2,7 +2,7 @@
 htop - ColumnsPanel.c
 (C) 2004-2015 Hisham H. Muhammad
 (C) 2020 Red Hat, Inc.  All Rights Reserved.
-Released under the GNU GPLv2, see the COPYING file
+Released under the GNU GPLv2+, see the COPYING file
 in the source distribution for its full text.
 */
 
@@ -61,8 +61,14 @@ static HandlerResult MainPanel_eventHandler(Panel* super, int ch) {
    if (ch == KEY_RESIZE)
       return IGNORED;
 
-   /* reset on every normal key, except mouse events while mouse support is disabled */
-   if (ch != ERR && (ch != KEY_MOUSE || this->state->settings->enableMouse))
+   /* reset on every normal key */
+   bool needReset = ch != ERR;
+   #ifdef HAVE_GETMOUSE
+   /* except mouse events while mouse support is disabled */
+   if (!(ch != KEY_MOUSE || this->state->settings->enableMouse))
+      needReset = false;
+   #endif
+   if (needReset)
       this->state->hideProcessSelection = false;
 
    if (EVENT_IS_HEADER_CLICK(ch)) {

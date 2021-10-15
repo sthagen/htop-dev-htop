@@ -2,7 +2,7 @@
 htop - OpenBSDProcessList.c
 (C) 2014 Hisham H. Muhammad
 (C) 2015 Michael McConville
-Released under the GNU GPLv2, see the COPYING file
+Released under the GNU GPLv2+, see the COPYING file
 in the source distribution for its full text.
 */
 
@@ -255,6 +255,8 @@ static void OpenBSDProcessList_updateProcessName(kvm_t* kd, const struct kinfo_p
    }
 
    Process_updateCmdline(proc, s, start, end);
+
+   free(s);
 }
 
 /*

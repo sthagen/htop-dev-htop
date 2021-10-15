@@ -45,14 +45,16 @@ Example:
 #define HEADER_FILENAME
 /*
 htop - Filename.h
-(C) 2020 htop dev team
-Released under the GNU GPLv2, see the COPYING file
+(C) 2021 htop dev team
+Released under the GNU GPLv2+, see the COPYING file
 in the source distribution for its full text.
 */
 ```
 
 Import and use of headers
 -------------------------
+
+We use the GPLv2+ as a shorthand indication that we release `htop` under the GNU Public license version 2 but are totally fine with users opting to apply the "any later version" clause.
 
 Every file should import headers for all symbols it's using.
 Thus when using a symbol from a header, even if that symbol is already imported by something else you use, you should declare an import for that header.
@@ -194,7 +196,7 @@ They can be a great asset to structure the flow of a method.
 If you want to automate formatting your code, the following command gives you a good baseline of how it should look:
 
 ```bash
-astyle -r -xb -s3 -p -xg -c -k1 -W1 \*.c \*.h
+astyle -r -xb -s3 -p -xg -c -k1 -W1 -H \*.c \*.h
 ```
 
 Working with System APIs

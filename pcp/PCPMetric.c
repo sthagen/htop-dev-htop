@@ -2,7 +2,7 @@
 htop - PCPMetric.c
 (C) 2020-2021 htop dev team
 (C) 2020-2021 Red Hat, Inc.
-Released under the GNU GPLv2, see the COPYING file
+Released under the GNU GPLv2+, see the COPYING file
 in the source distribution for its full text.
 */
 
@@ -164,7 +164,10 @@ bool PCPMetric_fetch(struct timeval* timestamp) {
       pmFreeResult(pcp->result);
       pcp->result = NULL;
    }
-   int sts = pmFetch(pcp->totalMetrics, pcp->fetch, &pcp->result);
+   int sts, count = 0;
+   do {
+       sts = pmFetch(pcp->totalMetrics, pcp->fetch, &pcp->result);
+   } while (sts == PM_ERR_IPC && ++count < 3);
    if (sts < 0) {
       if (pmDebugOptions.appl0)
          fprintf(stderr, "Error: cannot fetch metric values: %s\n",

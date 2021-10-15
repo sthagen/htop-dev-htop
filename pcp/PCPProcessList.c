@@ -3,7 +3,7 @@ htop - PCPProcessList.c
 (C) 2014 Hisham H. Muhammad
 (C) 2020-2021 htop dev team
 (C) 2020-2021 Red Hat, Inc.
-Released under the GNU GPLv2, see the COPYING file
+Released under the GNU GPLv2+, see the COPYING file
 in the source distribution for its full text.
 */
 
@@ -680,7 +680,8 @@ void ProcessList_goThroughEntries(ProcessList* super, bool pauseProcessUpdate) {
    PCPMetric_enable(PCP_PROC_SMAPS_SWAPPSS, smaps_flag && enabled);
 
    struct timeval timestamp;
-   PCPMetric_fetch(&timestamp);
+   if (PCPMetric_fetch(&timestamp) != true)
+      return;
 
    double sample = this->timestamp;
    this->timestamp = pmtimevalToReal(&timestamp);

@@ -2,7 +2,7 @@
 htop - DragonFlyBSDProcessList.c
 (C) 2014 Hisham H. Muhammad
 (C) 2017 Diederik de Groot
-Released under the GNU GPLv2, see the COPYING file
+Released under the GNU GPLv2+, see the COPYING file
 in the source distribution for its full text.
 */
 
@@ -333,6 +333,7 @@ static void DragonFlyBSDProcessList_updateProcessName(kvm_t* kd, const struct ki
    }
 
    char* cmdline = xMalloc(len);
+
    char* at = cmdline;
    int end = 0;
    for (int i = 0; argv[i]; i++) {
@@ -346,6 +347,8 @@ static void DragonFlyBSDProcessList_updateProcessName(kvm_t* kd, const struct ki
    *at = '\0';
 
    Process_updateCmdline(proc, cmdline, 0, end);
+
+   free(cmdline);
 }
 
 static inline void DragonFlyBSDProcessList_scanJails(DragonFlyBSDProcessList* dfpl) {

@@ -1,7 +1,7 @@
 /*
 htop - FreeBSDProcessList.c
 (C) 2014 Hisham H. Muhammad
-Released under the GNU GPLv2, see the COPYING file
+Released under the GNU GPLv2+, see the COPYING file
 in the source distribution for its full text.
 */
 
@@ -444,6 +444,8 @@ static void FreeBSDProcessList_updateProcessName(kvm_t* kd, const struct kinfo_p
    *at = '\0';
 
    Process_updateCmdline(proc, cmdline, 0, end);
+
+   free(cmdline);
 }
 
 static char* FreeBSDProcessList_readJailName(const struct kinfo_proc* kproc) {

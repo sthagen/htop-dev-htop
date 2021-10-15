@@ -1,7 +1,7 @@
 /*
 htop - freebsd/Platform.c
 (C) 2014 Hisham H. Muhammad
-Released under the GNU GPLv2, see the COPYING file
+Released under the GNU GPLv2+, see the COPYING file
 in the source distribution for its full text.
 */
 
@@ -284,7 +284,7 @@ bool Platform_getDiskIO(DiskIOData* data) {
    if (devstat_checkversion(NULL) < 0)
       return false;
 
-   struct devinfo info = { 0 };
+   static struct devinfo info = { 0 };
    struct statinfo current = { .dinfo = &info };
 
    // get number of devices

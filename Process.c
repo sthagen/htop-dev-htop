@@ -2,7 +2,7 @@
 htop - Process.c
 (C) 2004-2015 Hisham H. Muhammad
 (C) 2020 Red Hat, Inc.  All Rights Reserved.
-Released under the GNU GPLv2, see the COPYING file
+Released under the GNU GPLv2+, see the COPYING file
 in the source distribution for its full text.
 */
 
@@ -511,6 +511,12 @@ void Process_makeCommandStr(Process* this) {
 
       if (cmdlineBasenameEnd > cmdlineBasenameStart)
          WRITE_HIGHLIGHT(showProgramPath ? cmdlineBasenameStart : 0, cmdlineBasenameEnd - cmdlineBasenameStart, baseAttr, CMDLINE_HIGHLIGHT_FLAG_BASENAME);
+
+      if (this->procExeDeleted)
+         WRITE_HIGHLIGHT(showProgramPath ? cmdlineBasenameStart : 0, cmdlineBasenameEnd - cmdlineBasenameStart, delExeAttr, CMDLINE_HIGHLIGHT_FLAG_DELETED);
+      else if (this->usesDeletedLib)
+         WRITE_HIGHLIGHT(showProgramPath ? cmdlineBasenameStart : 0, cmdlineBasenameEnd - cmdlineBasenameStart, delLibAttr, CMDLINE_HIGHLIGHT_FLAG_DELETED);
+
       (void)stpcpyWithNewlineConversion(str, cmdline + (showProgramPath ? 0 : cmdlineBasenameStart));
 
       return;

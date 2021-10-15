@@ -1,7 +1,7 @@
 /*
 htop - DarwinProcess.c
 (C) 2015 Hisham H. Muhammad
-Released under the GNU GPLv2, see the COPYING file
+Released under the GNU GPLv2+, see the COPYING file
 in the source distribution for its full text.
 */
 
@@ -145,7 +145,7 @@ static void DarwinProcess_updateCmdLine(const struct kinfo_proc* k, Process* pro
    }
 
    /* Allocate space for the arguments. */
-   procargs = (char*)xMalloc(argmax);
+   procargs = (char*)malloc(argmax);
    if ( procargs == NULL ) {
       goto ERROR_A;
    }

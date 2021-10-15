@@ -1,7 +1,7 @@
 /*
 htop - IncSet.c
 (C) 2005-2012 Hisham H. Muhammad
-Released under the GNU GPLv2, see the COPYING file
+Released under the GNU GPLv2+, see the COPYING file
 in the source distribution for its full text.
 */
 
@@ -156,7 +156,7 @@ bool IncSet_handleKey(IncSet* this, int ch, Panel* panel, IncMode_GetPanelValue 
       doSearch = false;
    } else if (0 < ch && ch < 255 && isprint((unsigned char)ch)) {
       if (mode->index < INCMODE_MAX) {
-         mode->buffer[mode->index] = ch;
+         mode->buffer[mode->index] = (char) ch;
          mode->index++;
          mode->buffer[mode->index] = 0;
          if (mode->isFilter) {
