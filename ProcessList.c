@@ -158,7 +158,7 @@ void ProcessList_printHeader(const ProcessList* this, RichString* header) {
 }
 
 void ProcessList_add(ProcessList* this, Process* p) {
-   assert(Vector_indexOf(this->processes, p, Process_pidCompare) == -1);
+   assert(Vector_indexOf(this->processes, p, Process_pidEqualCompare) == -1);
    assert(Hashtable_get(this->processTable, p->pid) == NULL);
    p->processList = this;
 
@@ -168,25 +168,23 @@ void ProcessList_add(ProcessList* this, Process* p) {
    Vector_add(this->processes, p);
    Hashtable_put(this->processTable, p->pid, p);
 
-   assert(Vector_indexOf(this->processes, p, Process_pidCompare) != -1);
+   assert(Vector_indexOf(this->processes, p, Process_pidEqualCompare) != -1);
    assert(Hashtable_get(this->processTable, p->pid) != NULL);
-   assert(Hashtable_count(this->processTable) == Vector_count(this->processes));
+   assert(Vector_countEquals(this->processes, Hashtable_count(this->processTable)));
 }
 
-void ProcessList_remove(ProcessList* this, const Process* p) {
-   assert(Vector_indexOf(this->processes, p, Process_pidCompare) != -1);
-   assert(Hashtable_get(this->processTable, p->pid) != NULL);
-
-   const Process* pp = Hashtable_remove(this->processTable, p->pid);
-   assert(pp == p); (void)pp;
-
+// ProcessList_removeIndex removes Process p from the list's map and soft deletes
+// it from its vector. Vector_compact *must* be called once the caller is done
+// removing items.
+// Should only be called from ProcessList_scan to avoid breaking dying process highlighting.
+static void ProcessList_removeIndex(ProcessList* this, const Process* p, int idx) {
    pid_t pid = p->pid;
-   int idx = Vector_indexOf(this->processes, p, Process_pidCompare);
-   assert(idx != -1);
 
-   if (idx >= 0) {
-      Vector_remove(this->processes, idx);
-   }
+   assert(p == (Process*)Vector_get(this->processes, idx));
+   assert(Hashtable_get(this->processTable, pid) != NULL);
+
+   Hashtable_remove(this->processTable, pid);
+   Vector_softRemove(this->processes, idx);
 
    if (this->following != -1 && this->following == pid) {
       this->following = -1;
@@ -194,7 +192,7 @@ void ProcessList_remove(ProcessList* this, const Process* p) {
    }
 
    assert(Hashtable_get(this->processTable, pid) == NULL);
-   assert(Hashtable_count(this->processTable) == Vector_count(this->processes));
+   assert(Vector_countEquals(this->processes, Hashtable_count(this->processTable)));
 }
 
 static void ProcessList_buildTreeBranch(ProcessList* this, pid_t pid, int level, int indent, bool show) {
@@ -429,7 +427,7 @@ Process* ProcessList_getProcess(ProcessList* this, pid_t pid, bool* preExisting,
    Process* proc = (Process*) Hashtable_get(this->processTable, pid);
    *preExisting = proc != NULL;
    if (proc) {
-      assert(Vector_indexOf(this->processes, proc, Process_pidCompare) != -1);
+      assert(Vector_indexOf(this->processes, proc, Process_pidEqualCompare) != -1);
       assert(proc->pid == pid);
    } else {
       proc = constructor(this->settings);
@@ -484,7 +482,7 @@ void ProcessList_scan(ProcessList* this, bool pauseProcessUpdate) {
       if (p->tombStampMs > 0) {
          // remove tombed process
          if (this->monotonicMs >= p->tombStampMs) {
-            ProcessList_remove(this, p);
+            ProcessList_removeIndex(this, p, i);
          }
       } else if (p->updated == false) {
          // process no longer exists
@@ -493,10 +491,13 @@ void ProcessList_scan(ProcessList* this, bool pauseProcessUpdate) {
             p->tombStampMs = this->monotonicMs + 1000 * this->settings->highlightDelaySecs;
          } else {
             // immediately remove
-            ProcessList_remove(this, p);
+            ProcessList_removeIndex(this, p, i);
          }
       }
    }
+
+   // Compact the processes vector in case of any deletions
+   Vector_compact(this->processes);
 
    // Set UID column width based on max UID.
    Process_setUidColumnWidth(maxUid);

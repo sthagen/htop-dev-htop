@@ -1446,21 +1446,21 @@ static bool LinuxProcessList_recurseProcTree(LinuxProcessList* this, openat_arg_
       if (parent && pid == parent->pid)
          continue;
 
+#ifdef HAVE_OPENAT
+      int procFd = openat(dirFd, entry->d_name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+      if (procFd < 0)
+         continue;
+#else
+      char procFd[4096];
+      xSnprintf(procFd, sizeof(procFd), "%s/%s", dirFd, entry->d_name);
+#endif
+
       bool preExisting;
       Process* proc = ProcessList_getProcess(pl, pid, &preExisting, LinuxProcess_new);
       LinuxProcess* lp = (LinuxProcess*) proc;
 
       proc->tgid = parent ? parent->pid : pid;
       proc->isUserlandThread = proc->pid != proc->tgid;
-
-#ifdef HAVE_OPENAT
-      int procFd = openat(dirFd, entry->d_name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
-      if (procFd < 0)
-         goto errorReadingProcess;
-#else
-      char procFd[4096];
-      xSnprintf(procFd, sizeof(procFd), "%s/%s", dirFd, entry->d_name);
-#endif
 
       LinuxProcessList_recurseProcTree(this, procFd, "task", proc, period);
 
@@ -1653,8 +1653,13 @@ errorReadingProcess:
 #endif
 
          if (preExisting) {
-            ProcessList_remove(pl, proc);
+            /*
+             * The only real reason for coming here (apart from Linux violating the /proc API)
+             * would be the process going away with its /proc files disappearing (!HAVE_OPENAT).
+             * However, we want to keep in the process list for now for the "highlight dying" mode.
+             */
          } else {
+            /* A really short-lived process that we don't have full info about */
             Process_delete((Object*)proc);
          }
       }
@@ -2101,16 +2106,11 @@ static void scanCPUFrequencyFromCPUinfo(LinuxProcessList* this) {
       if (fgets(buffer, PROC_LINE_LENGTH, file) == NULL)
          break;
 
-      if (
-         (sscanf(buffer, "processor : %d", &cpuid) == 1) ||
-         (sscanf(buffer, "processor: %d", &cpuid) == 1)
-      ) {
+      if (sscanf(buffer, "processor : %d", &cpuid) == 1) {
          continue;
       } else if (
          (sscanf(buffer, "cpu MHz : %lf", &frequency) == 1) ||
-         (sscanf(buffer, "cpu MHz: %lf", &frequency) == 1) ||
-         (sscanf(buffer, "clock : %lfMHz", &frequency) == 1) ||
-         (sscanf(buffer, "clock: %lfMHz", &frequency) == 1)
+         (sscanf(buffer, "clock : %lfMHz", &frequency) == 1)
       ) {
          if (cpuid < 0 || (unsigned int)cpuid > (existingCPUs - 1)) {
             continue;
