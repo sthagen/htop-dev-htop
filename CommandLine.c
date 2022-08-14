@@ -66,7 +66,6 @@ static void printHelpFlag(const char* name) {
           "-V --version                    Print version info\n");
    Platform_longOptionsUsage(name);
    printf("\n"
-          "Long options may be passed with a single dash.\n\n"
           "Press F1 inside %s for online help.\n"
           "See 'man %s' for more information.\n", name, name);
 }
@@ -80,7 +79,9 @@ typedef struct CommandLineSettings_ {
    int sortKey;
    int delay;
    bool useColors;
+#ifdef HAVE_GETMOUSE
    bool enableMouse;
+#endif
    bool treeView;
    bool allowUnicode;
    bool highlightChanges;
@@ -97,7 +98,9 @@ static CommandLineStatus parseArguments(const char* program, int argc, char** ar
       .sortKey = 0,
       .delay = -1,
       .useColors = true,
+#ifdef HAVE_GETMOUSE
       .enableMouse = true,
+#endif
       .treeView = false,
       .allowUnicode = true,
       .highlightChanges = false,
