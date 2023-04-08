@@ -19,6 +19,7 @@ in the source distribution for its full text.
 #include <string.h>
 #include <unistd.h>
 
+#include "CommandLine.h"
 #include "ProvideCurses.h"
 #include "XUtils.h"
 
@@ -887,16 +888,16 @@ static struct sigaction old_sig_handler[32];
 
 static void CRT_installSignalHandlers(void) {
    struct sigaction act;
-   sigemptyset (&act.sa_mask);
+   sigemptyset(&act.sa_mask);
    act.sa_flags = (int)SA_RESETHAND | SA_NODEFER;
    act.sa_handler = CRT_handleSIGSEGV;
-   sigaction (SIGSEGV, &act, &old_sig_handler[SIGSEGV]);
-   sigaction (SIGFPE, &act, &old_sig_handler[SIGFPE]);
-   sigaction (SIGILL, &act, &old_sig_handler[SIGILL]);
-   sigaction (SIGBUS, &act, &old_sig_handler[SIGBUS]);
-   sigaction (SIGPIPE, &act, &old_sig_handler[SIGPIPE]);
-   sigaction (SIGSYS, &act, &old_sig_handler[SIGSYS]);
-   sigaction (SIGABRT, &act, &old_sig_handler[SIGABRT]);
+   sigaction(SIGSEGV, &act, &old_sig_handler[SIGSEGV]);
+   sigaction(SIGFPE, &act, &old_sig_handler[SIGFPE]);
+   sigaction(SIGILL, &act, &old_sig_handler[SIGILL]);
+   sigaction(SIGBUS, &act, &old_sig_handler[SIGBUS]);
+   sigaction(SIGPIPE, &act, &old_sig_handler[SIGPIPE]);
+   sigaction(SIGSYS, &act, &old_sig_handler[SIGSYS]);
+   sigaction(SIGABRT, &act, &old_sig_handler[SIGABRT]);
 
    signal(SIGCHLD, SIG_DFL);
    signal(SIGINT, CRT_handleSIGTERM);
@@ -905,13 +906,13 @@ static void CRT_installSignalHandlers(void) {
 }
 
 void CRT_resetSignalHandlers(void) {
-   sigaction (SIGSEGV, &old_sig_handler[SIGSEGV], NULL);
-   sigaction (SIGFPE, &old_sig_handler[SIGFPE], NULL);
-   sigaction (SIGILL, &old_sig_handler[SIGILL], NULL);
-   sigaction (SIGBUS, &old_sig_handler[SIGBUS], NULL);
-   sigaction (SIGPIPE, &old_sig_handler[SIGPIPE], NULL);
-   sigaction (SIGSYS, &old_sig_handler[SIGSYS], NULL);
-   sigaction (SIGABRT, &old_sig_handler[SIGABRT], NULL);
+   sigaction(SIGSEGV, &old_sig_handler[SIGSEGV], NULL);
+   sigaction(SIGFPE, &old_sig_handler[SIGFPE], NULL);
+   sigaction(SIGILL, &old_sig_handler[SIGILL], NULL);
+   sigaction(SIGBUS, &old_sig_handler[SIGBUS], NULL);
+   sigaction(SIGPIPE, &old_sig_handler[SIGPIPE], NULL);
+   sigaction(SIGSYS, &old_sig_handler[SIGSYS], NULL);
+   sigaction(SIGABRT, &old_sig_handler[SIGABRT], NULL);
 
    signal(SIGINT, SIG_DFL);
    signal(SIGTERM, SIG_DFL);
@@ -1153,10 +1154,11 @@ void CRT_handleSIGSEGV(int signal) {
       "============================\n"
       "Please check at https://htop.dev/issues whether this issue has already been reported.\n"
       "If no similar issue has been reported before, please create a new issue with the following information:\n"
-      "  - Your "PACKAGE" version: '"VERSION"'\n"
+      "  - Your %s version: '"VERSION"'\n"
       "  - Your OS and kernel version (uname -a)\n"
       "  - Your distribution and release (lsb_release -a)\n"
-      "  - Likely steps to reproduce (How did it happen?)\n"
+      "  - Likely steps to reproduce (How did it happen?)\n",
+      program
    );
 
 #ifdef PRINT_BACKTRACE
@@ -1196,15 +1198,16 @@ void CRT_handleSIGSEGV(int signal) {
    fprintf(stderr,
       "\n"
       "To make the above information more practical to work with, "
-      "please also provide a disassembly of your "PACKAGE" binary. "
+      "please also provide a disassembly of your %s binary. "
       "This can usually be done by running the following command:\n"
-      "\n"
+      "\n",
+      program
    );
 
 #ifdef HTOP_DARWIN
-   fprintf(stderr, "   otool -tvV `which "PACKAGE"` > ~/htop.otool\n");
+   fprintf(stderr, "   otool -tvV `which %s` > ~/%s.otool\n", program, program);
 #else
-   fprintf(stderr, "   objdump -d -S -w `which "PACKAGE"` > ~/htop.objdump\n");
+   fprintf(stderr, "   objdump -d -S -w `which %s` > ~/%s.objdump\n", program, program);
 #endif
 
    fprintf(stderr,
@@ -1216,12 +1219,13 @@ void CRT_handleSIGSEGV(int signal) {
    fprintf(stderr,
       "Running this program with debug symbols or inside a debugger may provide further insights.\n"
       "\n"
-      "Thank you for helping to improve "PACKAGE"!\n"
-      "\n"
+      "Thank you for helping to improve %s!\n"
+      "\n",
+      program
    );
 
    /* Call old sigsegv handler; may be default exit or third party one (e.g. ASAN) */
-   if (sigaction (signal, &old_sig_handler[signal], NULL) < 0) {
+   if (sigaction(signal, &old_sig_handler[signal], NULL) < 0) {
       /* This avoids an infinite loop in case the handler could not be reset. */
       fprintf(stderr,
          "!!! Chained handler could not be restored. Forcing exit.\n"
