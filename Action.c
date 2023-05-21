@@ -43,7 +43,7 @@ in the source distribution for its full text.
 #endif
 
 
-Object* Action_pickFromVector(State* st, Panel* list, int x, bool followProcess) {
+Object* Action_pickFromVector(State* st, Panel* list, int x, bool follow) {
    MainPanel* mainPanel = st->mainPanel;
    Header* header = st->header;
    Machine* host = st->host;
@@ -56,8 +56,8 @@ Object* Action_pickFromVector(State* st, Panel* list, int x, bool followProcess)
    Panel* panelFocus;
    int ch;
    bool unfollow = false;
-   int pid = followProcess ? MainPanel_selectedPid(mainPanel) : -1;
-   if (followProcess && host->pl->following == -1) {
+   int pid = follow ? MainPanel_selectedPid(mainPanel) : -1;
+   if (follow && host->pl->following == -1) {
       host->pl->following = pid;
       unfollow = true;
    }
@@ -69,7 +69,7 @@ Object* Action_pickFromVector(State* st, Panel* list, int x, bool followProcess)
    Panel_move((Panel*)mainPanel, 0, y);
    Panel_resize((Panel*)mainPanel, COLS, LINES - y - 1);
    if (panelFocus == list && ch == 13) {
-      if (followProcess) {
+      if (follow) {
          const Process* selected = (const Process*)Panel_getSelected((Panel*)mainPanel);
          if (selected && selected->pid == pid)
             return Panel_getSelected(list);
@@ -352,7 +352,7 @@ static Htop_Reaction actionNextScreen(State* st) {
       settings->ssIndex = 0;
    }
    settings->ss = settings->screens[settings->ssIndex];
-   return HTOP_UPDATE_PANELHDR | HTOP_REFRESH;
+   return HTOP_UPDATE_PANELHDR | HTOP_REFRESH | HTOP_REDRAW_BAR;
 }
 
 static Htop_Reaction actionPrevScreen(State* st) {
@@ -363,7 +363,7 @@ static Htop_Reaction actionPrevScreen(State* st) {
       settings->ssIndex--;
    }
    settings->ss = settings->screens[settings->ssIndex];
-   return HTOP_UPDATE_PANELHDR | HTOP_REFRESH;
+   return HTOP_UPDATE_PANELHDR | HTOP_REFRESH | HTOP_REDRAW_BAR;
 }
 
 Htop_Reaction Action_setScreenTab(Settings* settings, int x) {
@@ -377,7 +377,7 @@ Htop_Reaction Action_setScreenTab(Settings* settings, int x) {
       if (x <= s + len + 1) {
          settings->ssIndex = i;
          settings->ss = settings->screens[i];
-         return HTOP_UPDATE_PANELHDR | HTOP_REFRESH;
+         return HTOP_UPDATE_PANELHDR | HTOP_REFRESH | HTOP_REDRAW_BAR;
       }
       s += len + 3;
    }
