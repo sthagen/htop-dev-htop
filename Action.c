@@ -232,6 +232,8 @@ static Htop_Reaction actionToggleKernelThreads(State* st) {
    settings->hideKernelThreads = !settings->hideKernelThreads;
    settings->lastUpdate++;
 
+   Machine_scanTables(st->host); // needed to not have a visible delay showing wrong data
+
    return HTOP_RECALCULATE | HTOP_SAVE_SETTINGS | HTOP_KEEP_FOLLOWING;
 }
 
@@ -239,6 +241,8 @@ static Htop_Reaction actionToggleUserlandThreads(State* st) {
    Settings* settings = st->host->settings;
    settings->hideUserlandThreads = !settings->hideUserlandThreads;
    settings->lastUpdate++;
+
+   Machine_scanTables(st->host); // needed to not have a visible delay showing wrong data
 
    return HTOP_RECALCULATE | HTOP_SAVE_SETTINGS | HTOP_KEEP_FOLLOWING;
 }
