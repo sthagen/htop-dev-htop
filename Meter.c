@@ -86,7 +86,7 @@ void Meter_delete(Object* cast) {
    if (Meter_doneFn(this)) {
       Meter_done(this);
    }
-   free(this->drawData);
+   free(this->drawData.values);
    free(this->caption);
    free(this->values);
    free(this);
@@ -121,8 +121,9 @@ void Meter_setMode(Meter* this, int modeIndex) {
       }
    } else {
       assert(modeIndex >= 1);
-      free(this->drawData);
-      this->drawData = NULL;
+      free(this->drawData.values);
+      this->drawData.values = NULL;
+      this->drawData.nValues = 0;
 
       const MeterMode* mode = Meter_modes[modeIndex];
       this->draw = mode->draw;
@@ -288,13 +289,41 @@ static const char* const GraphMeterMode_dotsAscii[] = {
 };
 
 static void GraphMeterMode_draw(Meter* this, int x, int y, int w) {
-   const Machine* host = this->host;
+   const char* caption = Meter_getCaption(this);
+   attrset(CRT_colors[METER_TEXT]);
+   const int captionLen = 3;
+   mvaddnstr(y, x, caption, captionLen);
+   x += captionLen;
+   w -= captionLen;
+   if (w <= 0)
+      return;
 
-   if (!this->drawData) {
-      this->drawData = xCalloc(1, sizeof(GraphData));
+   GraphData* data = &this->drawData;
+   if ((size_t)w * 2 > data->nValues && MAX_METER_GRAPHDATA_VALUES > data->nValues) {
+      size_t oldNValues = data->nValues;
+      data->nValues = MAXIMUM(oldNValues + oldNValues / 2, (size_t)w * 2);
+      data->nValues = MINIMUM(data->nValues, MAX_METER_GRAPHDATA_VALUES);
+      data->values = xReallocArray(data->values, data->nValues, sizeof(*data->values));
+      memmove(data->values + (data->nValues - oldNValues), data->values, oldNValues * sizeof(*data->values));
+      memset(data->values, 0, (data->nValues - oldNValues) * sizeof(*data->values));
    }
-   GraphData* data = this->drawData;
-   const int nValues = METER_GRAPHDATA_SIZE;
+   const size_t nValues = data->nValues;
+   if ((size_t)w * 2 > nValues) {
+      x += w - nValues / 2;
+      w = nValues / 2;
+   }
+
+   const Machine* host = this->host;
+   if (!timercmp(&host->realtime, &(data->time), <)) {
+      int globalDelay = host->settings->delay;
+      struct timeval delay = { .tv_sec = globalDelay / 10, .tv_usec = (globalDelay % 10) * 100000L };
+      timeradd(&host->realtime, &delay, &(data->time));
+
+      for (size_t i = 0; i < nValues - 1; i++)
+         data->values[i] = data->values[i + 1];
+
+      data->values[nValues - 1] = sumPositiveValues(this->values, this->curItems);
+   }
 
    const char* const* GraphMeterMode_dots;
    int GraphMeterMode_pixPerRow;
@@ -309,30 +338,8 @@ static void GraphMeterMode_draw(Meter* this, int x, int y, int w) {
       GraphMeterMode_pixPerRow = PIXPERROW_ASCII;
    }
 
-   const char* caption = Meter_getCaption(this);
-   attrset(CRT_colors[METER_TEXT]);
-   int captionLen = 3;
-   mvaddnstr(y, x, caption, captionLen);
-   x += captionLen;
-   w -= captionLen;
-
-   if (!timercmp(&host->realtime, &(data->time), <)) {
-      int globalDelay = this->host->settings->delay;
-      struct timeval delay = { .tv_sec = globalDelay / 10, .tv_usec = (globalDelay % 10) * 100000L };
-      timeradd(&host->realtime, &delay, &(data->time));
-
-      for (int i = 0; i < nValues - 1; i++)
-         data->values[i] = data->values[i + 1];
-
-      data->values[nValues - 1] = sumPositiveValues(this->values, this->curItems);
-   }
-
-   int i = nValues - (w * 2), k = 0;
-   if (i < 0) {
-      k = -i / 2;
-      i = 0;
-   }
-   for (; i < nValues - 1; i += 2, k++) {
+   size_t i = nValues - (size_t)w * 2;
+   for (int col = 0; i < nValues - 1; i += 2, col++) {
       int pix = GraphMeterMode_pixPerRow * GRAPH_HEIGHT;
       if (this->total < 1)
          this->total = 1;
@@ -345,7 +352,7 @@ static void GraphMeterMode_draw(Meter* this, int x, int y, int w) {
          int line2 = CLAMP(v2 - (GraphMeterMode_pixPerRow * (GRAPH_HEIGHT - 1 - line)), 0, GraphMeterMode_pixPerRow);
 
          attrset(CRT_colors[colorIdx]);
-         mvaddstr(y + line, x + k, GraphMeterMode_dots[line1 * (GraphMeterMode_pixPerRow + 1) + line2]);
+         mvaddstr(y + line, x + col, GraphMeterMode_dots[line1 * (GraphMeterMode_pixPerRow + 1) + line2]);
          colorIdx = GRAPH_2;
       }
    }
