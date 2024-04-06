@@ -790,7 +790,7 @@ Settings* Settings_new(unsigned int initialCpuCount, Hashtable* dynamicMeters, H
    this->topologyAffinity = false;
    #endif
 
-   this->screens = xCalloc(Platform_numberOfDefaultScreens * sizeof(ScreenSettings*), 1);
+   this->screens = xCalloc(Platform_numberOfDefaultScreens, sizeof(ScreenSettings*));
    this->nScreens = 0;
 
    char* legacyDotfile = NULL;
@@ -838,8 +838,8 @@ Settings* Settings_new(unsigned int initialCpuCount, Hashtable* dynamicMeters, H
 #endif
    this->changed = false;
    this->delay = DEFAULT_DELAY;
-   bool ok = false;
-   if (legacyDotfile) {
+   bool ok = Settings_read(this, this->filename, initialCpuCount);
+   if (!ok && legacyDotfile) {
       ok = Settings_read(this, legacyDotfile, initialCpuCount);
       if (ok) {
          // Transition to new location and delete old configuration file
@@ -848,9 +848,6 @@ Settings* Settings_new(unsigned int initialCpuCount, Hashtable* dynamicMeters, H
          }
       }
       free(legacyDotfile);
-   }
-   if (!ok) {
-      ok = Settings_read(this, this->filename, initialCpuCount);
    }
    if (!ok) {
       this->screenTabs = true;
