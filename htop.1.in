@@ -281,13 +281,13 @@ movement keys like Up, Down, PgUp, and PgDn will end follow mode immediately,
 while Shift+Up and Shift+Down still pan without disabling follow.
 .TP
 .B K
-Hide kernel threads: prevent the threads belonging the kernel to be
+Hide kernel threads: prevent threads belonging to the kernel from being
 displayed in the process list. (This is a toggle key.)
 .TP
 .B H
-Hide user threads: on systems that represent them differently than ordinary
-processes (such as recent NPTL-based systems), this can hide threads from
-userspace processes in the process list. (This is a toggle key.)
+Hide user threads: prevent threads (NPTL, pthreads, LWP, etc.) belonging
+to userspace processes from being displayed in the process list.
+(This is a toggle key.)
 .TP
 .B O
 Hide containerized processes: prevent processes running in a container
@@ -614,6 +614,56 @@ The autogroup nice value for the process autogroup. Requires Linux CFS to be ena
 .TP
 .B All other flags
 Currently unsupported (always displays '-').
+.SH "METERS"
+Header meters (configured in Setup, F2) show live host statistics. The
+.B CPU
+meter is a bar (or text, depending on display mode) that stacks several kinds
+of CPU time. Left-to-right segments match the on-screen legend
+.RB ( F1 / h
+help also shows this in color).
+.PP
+Default
+.B CPU
+bar segments (\"default\" color scheme). In monochrome mode the same segments
+use text attributes instead of hues:
+.TP
+.B low (nice)
+Blue; monochrome: normal intensity. Time running at nice > 0.
+.TP
+.B normal (user)
+Green; monochrome: bold. Ordinary user-mode time.
+.TP
+.B kernel (system)
+Red; monochrome: bold. Kernel / system time.
+.TP
+.B irq
+Yellow; monochrome: bold. Hardware interrupt time (detailed CPU time).
+.TP
+.B soft-irq
+Magenta; monochrome: bold. Software interrupt time (detailed CPU time).
+.TP
+.B steal
+Cyan; monochrome: dim. Time stolen by the hypervisor (detailed CPU time).
+.TP
+.B guest / virt
+Cyan; monochrome: dim. Guest VM time when detailed CPU time is on.
+Labeled
+.B virt
+when it is off (Linux and PCP: steal plus guest combined).
+.TP
+.B io-wait
+Gray; monochrome: normal. Waiting on block I/O (detailed CPU time).
+.PP
+With
+.B Detailed CPU time
+enabled in Setup, the bar expands to show irq, soft-irq, steal, guest and
+io-wait separately. Otherwise Linux and PCP fold steal and guest into
+.B virt
+and some of the finer classes are folded into the main segments.
+.PP
+Exact hues depend on the selected color scheme; monochrome maps the same
+segments to bold / normal / dim as noted above. The interactive help always
+shows the live legend for your current scheme.
 .SH "EXTERNAL LIBRARIES"
 While
 .B htop
