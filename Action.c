@@ -250,6 +250,8 @@ static Htop_Reaction actionToggleKernelThreads(State* st) {
    settings->hideKernelThreads = !settings->hideKernelThreads;
    settings->lastUpdate++;
 
+   Table_preserveSelection(st->host->activeTable);
+
    Machine_scanTables(st->host); // needed to not have a visible delay showing wrong data
 
    return HTOP_RECALCULATE | HTOP_SAVE_SETTINGS | HTOP_KEEP_FOLLOWING;
@@ -260,6 +262,8 @@ static Htop_Reaction actionToggleUserlandThreads(State* st) {
    settings->hideUserlandThreads = !settings->hideUserlandThreads;
    settings->lastUpdate++;
 
+   Table_preserveSelection(st->host->activeTable);
+
    Machine_scanTables(st->host); // needed to not have a visible delay showing wrong data
 
    return HTOP_RECALCULATE | HTOP_SAVE_SETTINGS | HTOP_KEEP_FOLLOWING;
@@ -269,6 +273,8 @@ static Htop_Reaction actionToggleRunningInContainer(State* st) {
    Settings* settings = st->host->settings;
    settings->hideRunningInContainer = !settings->hideRunningInContainer;
    settings->lastUpdate++;
+
+   Table_preserveSelection(st->host->activeTable);
 
    return HTOP_RECALCULATE | HTOP_SAVE_SETTINGS | HTOP_KEEP_FOLLOWING;
 }

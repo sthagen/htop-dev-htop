@@ -45,4 +45,6 @@ void Header_updateData(Header* this);
 
 int Header_calculateHeight(Header* this);
 
+int Header_click(const Header* this, int x, int y);
+
 #endif

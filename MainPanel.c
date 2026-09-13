@@ -87,7 +87,9 @@ static HandlerResult MainPanel_eventHandler(Panel* super, int ch) {
 
    if (EVENT_IS_HEADER_CLICK(ch)) {
       int x = EVENT_HEADER_CLICK_GET_X(ch);
-      int hx = super->scrollH + x + 1;
+      int hx = (x < super->pinnedWidth)
+         ? x + 1
+         : super->pinnedWidth + super->scrollH + (x - super->pinnedWidth) + 1;
       RowField field = RowField_keyAt(settings, hx);
       if (ss->treeView && ss->treeViewAlwaysByPID) {
          ss->treeView = false;
@@ -221,7 +223,9 @@ static void MainPanel_drawFunctionBar(Panel* super, bool hideFunctionBar) {
 static void MainPanel_printHeader(Panel* super) {
    MainPanel* this = (MainPanel*) super;
    Machine* host = this->state->host;
-   Table_printHeader(host->settings, &super->header);
+   Settings* settings = host->settings;
+   super->pinnedWidth = RowField_pinnedWidth(settings);
+   Table_printHeader(settings, &super->header);
 }
 
 const PanelClass MainPanel_class = {

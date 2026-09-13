@@ -574,6 +574,8 @@ static bool Settings_read(Settings* this, const char* fileName, const Machine* h
          }
       } else if (String_eq(option[0], "hide_function_bar")) {
          this->hideFunctionBar = atoi(option[1]);
+      } else if (String_eq(option[0], "keep_columns_visible")) {
+         this->keepColumnsVisible = MAXIMUM(atoi(option[1]), 0);
       #ifdef HAVE_LIBHWLOC
       } else if (String_eq(option[0], "topology_affinity")) {
          this->topologyAffinity = !!atoi(option[1]);
@@ -841,6 +843,7 @@ int Settings_write(const Settings* this, bool onCrash) {
    #endif
    printSettingInteger("delay", (int) this->delay);
    printSettingInteger("hide_function_bar", (int) this->hideFunctionBar);
+   printSettingInteger("keep_columns_visible", this->keepColumnsVisible);
    #ifdef HAVE_LIBHWLOC
    printSettingInteger("topology_affinity", this->topologyAffinity);
    #endif
@@ -910,6 +913,130 @@ int Settings_write(const Settings* this, bool onCrash) {
    return r;
 }
 
+static const char* Settings_getHome(void) {
+   const char* home = getenv("HOME");
+   if (!home || home[0] != '/') {
+      const struct passwd* pw = getpwuid(getuid());
+      return (pw && pw->pw_dir && pw->pw_dir[0] == '/') ? pw->pw_dir : "";
+   }
+   return home;
+}
+
+static bool Settings_mkdirp(const char* path, mode_t mode) {
+   char* copy = xStrdup(path);
+   bool ok = true;
+   for (char* p = copy + (copy[0] == '/' ? 1 : 0); *p; p++) {
+      if (*p != '/')
+         continue;
+      *p = '\0';
+      if (mkdir(copy, mode) != 0 && errno != EEXIST)
+         ok = false;
+      *p = '/';
+   }
+   if (mkdir(copy, mode) != 0 && errno != EEXIST)
+      ok = false;
+   free(copy);
+   return ok;
+}
+
+static void Settings_migrateHistory(const char* fromPath, const char* toPath) {
+   /* O_NOFOLLOW and O_NONBLOCK ensure a symlink or FIFO planted at the path
+      cannot redirect the copy or block it. */
+   int fromFd = open(fromPath, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+   if (fromFd < 0)
+      return;
+
+   /* Validate the descriptor we actually opened: regular file owned by the
+      effective user. O_NOFOLLOW rejects a symlink at the final path component,
+      and fstat() rules out a swap between open() and here. */
+   struct stat sb;
+   if (fstat(fromFd, &sb) != 0 || !S_ISREG(sb.st_mode) || sb.st_uid != geteuid()) {
+      close(fromFd);
+      return;
+   }
+
+   /* O_EXCL guarantees the destination is never overwritten; once the state
+      file exists it takes precedence over the legacy copy. */
+   int toFd = open(toPath, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_NONBLOCK, 0600);
+   if (toFd < 0) {
+      close(fromFd);
+      return;
+   }
+
+   bool ok = true;
+   char buf[4096];
+   for (;;) {
+      ssize_t n = read(fromFd, buf, sizeof(buf));
+      if (n < 0) {
+         if (errno == EINTR)
+            continue;
+         ok = false;
+         break;
+      }
+      if (n == 0)
+         break;
+      if (full_write(toFd, buf, (size_t)n) != n) {
+         ok = false;
+         break;
+      }
+   }
+   if (close(fromFd) != 0)
+      ok = false;
+   if (close(toFd) != 0 || !ok) {
+      unlink(toPath);
+      return;
+   }
+
+   /* Remove the legacy file only if it still refers to the entry we copied. */
+   struct stat sbPath;
+   if (lstat(fromPath, &sbPath) == 0 && sbPath.st_dev == sb.st_dev && sbPath.st_ino == sb.st_ino)
+      (void) unlink(fromPath);
+}
+
+/* Return the legacy history path as stored beside a configuration file
+   (the old history location), or NULL when the file has no directory part. */
+static char* Settings_legacyHistoryFile(const char* configFile) {
+   const char* lastSlash = strrchr(configFile, '/');
+   if (!lastSlash)
+      return NULL;
+   char* dir = xStrndup(configFile, (size_t)(lastSlash - configFile + 1));
+   char* file = String_cat(dir, "htop_history");
+   free(dir);
+   return file;
+}
+
+char* Settings_getHistoryFile(const char* configFile) {
+   const char* xdgStateHome = getenv("XDG_STATE_HOME");
+   const char* home = Settings_getHome();
+
+   if ((!xdgStateHome || xdgStateHome[0] != '/') && !home[0])
+      return NULL;
+
+   char* stateHtopDir;
+   if (xdgStateHome && xdgStateHome[0] == '/')
+      stateHtopDir = String_cat(xdgStateHome, "/htop");
+   else
+      stateHtopDir = String_cat(home, "/.local/state/htop");
+
+   char* historyFile = String_cat(stateHtopDir, "/htop_history");
+   if (!Settings_mkdirp(stateHtopDir, 0700)) {
+      free(stateHtopDir);
+      free(historyFile);
+      return NULL;
+   }
+   free(stateHtopDir);
+
+   /* The search/filter history used to be stored next to the
+      htoprc file; migrate it if present. */
+   char* legacyFile = Settings_legacyHistoryFile(configFile);
+   if (legacyFile) {
+      Settings_migrateHistory(legacyFile, historyFile);
+      free(legacyFile);
+   }
+
+   return historyFile;
+}
+
 Settings* Settings_new(const Machine* host, Hashtable* dynamicMeters, Hashtable* dynamicColumns, Hashtable* dynamicScreens) {
    Settings* this = xCalloc(1, sizeof(Settings));
 
@@ -951,6 +1078,7 @@ Settings* Settings_new(const Machine* host, Hashtable* dynamicMeters, Hashtable*
    this->showMergedCommand = false;
    this->hideFunctionBar = 0;
    this->headerMargin = true;
+   this->keepColumnsVisible = 0;
    #ifdef HAVE_LIBHWLOC
    this->topologyAffinity = false;
    #endif
@@ -963,11 +1091,7 @@ Settings* Settings_new(const Machine* host, Hashtable* dynamicMeters, Hashtable*
    if (rcfile) {
       this->initialFilename = xStrdup(rcfile);
    } else {
-      const char* home = getenv("HOME");
-      if (!home || home[0] != '/') {
-         const struct passwd* pw = getpwuid(getuid());
-         home = (pw && pw->pw_dir && pw->pw_dir[0] == '/') ? pw->pw_dir : "";
-      }
+      const char* home = Settings_getHome();
       const char* xdgConfigHome = getenv("XDG_CONFIG_HOME");
       char* configDir = NULL;
       char* htopDir = NULL;

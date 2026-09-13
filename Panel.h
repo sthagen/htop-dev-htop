@@ -73,6 +73,7 @@ struct Panel_ {
    void* eventHandlerState;
    int scrollV;
    int scrollH;
+   int pinnedWidth; /* width (in columns) of the leading, non-scrolling region */
    bool needsRedraw;
    bool cursorOn;
    bool wasFocus;

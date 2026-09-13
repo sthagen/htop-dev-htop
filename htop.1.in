@@ -79,6 +79,13 @@ Disable support of mouse control
 \fB\-\-no-meters\fR
 Hide graph meters
 .TP
+ \fB\-\-keep-visible[=N]\fR
+Keep the first N columns visible when scrolling sideways in the process list.
+The argument is optional; if omitted, N is taken to be 1, and 0 disables the
+feature (the default). If N is larger than the number of columns of the
+current screen, all columns except the last one are kept visible, so that
+the last column remains scrollable.
+.TP
 \fB\-\-readonly\fR
 Disable all system and process changing features
 .TP
@@ -738,6 +745,17 @@ If no user configuration exists
 tries to read the system-wide configuration from
 .I @sysconfdir@/htoprc
 and as a last resort, falls back to its hard coded defaults.
+.LP
+The search and filter history is stored below the XDG state directory, in
+.IR $XDG_STATE_HOME/htop/htop_history ,
+defaulting to
+.IR ~/.local/state/htop/htop_history
+when the
+.IR $XDG_STATE_HOME
+variable is not set.
+A history file left over from an older version stored next to the htoprc
+configuration file is migrated to this location automatically on the next
+start.
 .LP
 You may override the location of the configuration file using the $HTOPRC
 environment variable (so you can have multiple configurations for different
